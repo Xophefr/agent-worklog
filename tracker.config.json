@@ -1,0 +1,48 @@
+{
+    "projet": "Mon projet",
+    "chantiers": "docs/CHANTIERS.md",
+    "backlog": "docs/chantiers/backlog.md",
+    "specs": "docs/chantiers",
+    "tracker": "docs/tracker",
+    "ui": {
+        "accent": "#3538cd",
+        "accentSombre": "#a4a6ff",
+        "marque": "DÉCISION",
+        "marqueFiltre": "Décision attendue",
+        "marqueKpi": "décisions attendues"
+    },
+    "serveur": {
+        "port": 4173
+    },
+    "code": {
+        "compterOutil": true,
+        "exclus": ["node_modules", "dist", "build", ".git", "coverage", "vendor", "__pycache__", ".venv", "venv", "test-results", "playwright-report"],
+        "groupes": [
+            {
+                "cle": "src",
+                "libelle": "Code source",
+                "production": true,
+                "racines": ["src"],
+                "suffixes": [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".php", ".css", ".html"],
+                "tests": "exclure"
+            },
+            {
+                "cle": "scripts",
+                "libelle": "Scripts",
+                "production": true,
+                "racines": ["scripts"],
+                "suffixes": [".mjs", ".js", ".ps1", ".sh", ".py"],
+                "tests": "exclure"
+            },
+            {
+                "cle": "tests",
+                "libelle": "Tests",
+                "production": false,
+                "racines": ["src", "scripts", "tests", "test", "e2e"],
+                "suffixes": [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".php"],
+                "tests": "seulement",
+                "cas": true
+            }
+        ]
+    }
+}

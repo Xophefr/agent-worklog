@@ -1,0 +1,5 @@
+# Copie de sécurité écrite à chaque enregistrement du tableau.
+chantiers.json.bak
+# Relevé de code : fichier LOCAL, écrit par npm run code:stats ou la tâche planifiée.
+# Suivi par git, il salirait le dépôt à chaque relevé.
+code_stats.json

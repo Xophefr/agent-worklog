@@ -1,0 +1,280 @@
+/* Tableau de suivi des chantiers. Tokens en tête ; aucune couleur brute plus bas.
+ * L'accent se règle dans tracker.config.json (ui.accent, ui.accentSombre) : choisir une couleur
+ * à 4.5:1 au moins sur le fond, dans chaque thème.
+ * Accessibilité (RGAA) : toutes les tailles sont en rem / em, donc le texte suit le réglage
+ * du navigateur et le zoom jusqu'à 200 % sans perte (critère 10.4). La racine est à 125 %
+ * du réglage du navigateur : c'est elle qui fixe la taille de lecture de toute la page.
+ * Les contrastes texte / fond des tokens sont tous >= 4.5:1 (critère 3.2), dans les deux thèmes.
+ */
+:root {
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #eef2f6;
+  --border: #b9c4d0;
+  --text: #0f1b2a;
+  --muted: #4a586b;
+  --accent: #3538cd;          /* indigo, 8.1:1 sur blanc */
+  --accent-soft: #e0e1fb;
+  --focus: #3538cd;
+  --p0: #b42318; --p0-bg: #fde7e5;
+  --p1: #8f5206; --p1-bg: #fdf0d9;
+  --p2: #1f5fbf; --p2-bg: #e3edfb;
+  --p3: #4f5866; --p3-bg: #eceff3;
+  --ok: #17702f; --ok-bg: #ddf4e3;
+  --warn: #8a5a00; --warn-bg: #fff3cd;
+  --block: #8e2873; --block-bg: #f8e3f2;
+  --shadow: 0 1px 2px rgba(15, 27, 42, .06), 0 4px 16px rgba(15, 27, 42, .06);
+  --radius: .5rem;
+  --sans: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1118; --surface: #121a24; --surface-2: #19232f; --border: #3a4a5e;
+    --text: #e6edf5; --muted: #a9b6c6; --accent: #a4a6ff; --accent-soft: #1d1f4d; --focus: #a4a6ff;
+    --p0: #ff8a80; --p0-bg: #3a1614; --p1: #f5b54a; --p1-bg: #35260c;
+    --p2: #8dbaff; --p2-bg: #14243d; --p3: #b4bdca; --p3-bg: #20293a;
+    --ok: #5fd07c; --ok-bg: #12301b; --warn: #f2c14e; --warn-bg: #33290b;
+    --block: #ef9ddb; --block-bg: #36142e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1118; --surface: #121a24; --surface-2: #19232f; --border: #3a4a5e;
+  --text: #e6edf5; --muted: #a9b6c6; --accent: #a4a6ff; --accent-soft: #1d1f4d; --focus: #a4a6ff;
+  --p0: #ff8a80; --p0-bg: #3a1614; --p1: #f5b54a; --p1-bg: #35260c;
+  --p2: #8dbaff; --p2-bg: #14243d; --p3: #b4bdca; --p3-bg: #20293a;
+  --ok: #5fd07c; --ok-bg: #12301b; --warn: #f2c14e; --warn-bg: #33290b;
+  --block: #ef9ddb; --block-bg: #36142e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+  color-scheme: dark;
+}
+
+html { font-size: 125%; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: .9375rem/1.55 var(--sans); }
+svg { width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: .5rem; top: -3rem; background: var(--surface); padding: .5rem .75rem; border-radius: var(--radius); z-index: 30; }
+.skip:focus { top: .5rem; }
+.mono { font-family: var(--mono); font-size: .9em; }
+a { color: var(--accent); text-underline-offset: .15em; }
+
+.top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.5rem .5rem; max-width: 100rem; margin: 0 auto; }
+.top h1 { font-size: 1.375rem; margin: 0; letter-spacing: -.01em; }
+.sub { margin: .125rem 0 0; color: var(--muted); font-size: .8125rem; }
+.top-actions { display: flex; align-items: center; gap: .5rem; }
+.icon-btn { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: background .15s; }
+.icon-btn:hover { background: var(--surface-2); }
+.save-state { font-size: .8125rem; color: var(--muted); }
+.save-state.err { color: var(--p0); font-weight: 600; }
+.save-state.ok { color: var(--ok); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; padding: .5rem 1.5rem; max-width: 100rem; margin: 0 auto; list-style: none; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .625rem .875rem; }
+.kpi b { display: block; font: 600 1.5rem/1.2 var(--mono); }
+.kpi span { color: var(--muted); font-size: .8125rem; }
+.kpi.wide { grid-column: span 2; }
+.bar { height: .5rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; overflow: hidden; display: flex; margin-top: .375rem; }
+.bar i { display: block; height: 100%; }
+.bar .s-fait { background: var(--ok); } .bar .s-en_cours { background: var(--p2); } .bar .s-a_verifier { background: var(--warn); }
+
+.tabs { display: flex; gap: .25rem; padding: .5rem 1.5rem 0; max-width: 100rem; margin: 0 auto; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.tabs button { border: 0; background: none; padding: .625rem .875rem; min-height: 2.75rem; cursor: pointer; color: var(--muted); font-weight: 500; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+.filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; padding: .75rem 1.5rem; max-width: 100rem; margin: 0 auto; font-size: .875rem; color: var(--muted); }
+.filters label { display: inline-flex; align-items: center; gap: .375rem; }
+.filters select, .filters input[type="search"] { background: var(--surface); border: 1px solid var(--border); border-radius: .375rem; padding: .375rem .5rem; min-height: 2.75rem; color: var(--text); max-width: 100%; }
+.filters .search { position: relative; }
+.filters .search svg { position: absolute; left: .5625rem; color: var(--muted); width: 1rem; height: 1rem; }
+.filters .search input { padding-left: 1.875rem; width: 18rem; max-width: 80vw; }
+.filters .chk input { width: 1.125rem; height: 1.125rem; accent-color: var(--accent); }
+body[data-view="items"] .only-ch, body:not([data-view="items"]) .only-items { display: none; }
+/* L'onglet Code ne porte ni chantier ni tache : aucun filtre ne s'y applique. */
+body[data-view="code"] .filters { display: none; }
+
+main { max-width: 100rem; margin: 0 auto; padding: .25rem 1.5rem 3rem; }
+.group { margin: .75rem 0 1.25rem; }
+.group h2 { display: flex; align-items: center; gap: .5rem; font-size: .875rem; margin: 0 0 .5rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.drop-hint { border: 1px dashed var(--border); border-radius: var(--radius); padding: .625rem; color: var(--muted); font-size: .8125rem; text-align: center; }
+
+.row { display: grid; grid-template-columns: 1.25rem 4rem 3.25rem minmax(0, 1fr) auto 7rem 5.75rem; gap: .75rem; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem .75rem; margin-bottom: .375rem; transition: border-color .15s, box-shadow .15s; }
+.row:hover, .row:focus-within { border-color: var(--accent); box-shadow: var(--shadow); }
+.row.dragging { opacity: .45; }
+.row.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.row .grip { color: var(--muted); cursor: grab; }
+.row .title { min-width: 0; }
+/* Pas de troncature du titre : il passe à la ligne. La note est limitée à deux lignes, lisible en entier dans la fiche. */
+.row .title a { display: block; font-weight: 500; color: var(--text); text-decoration: none; line-height: 1.35; }
+.row .title a:hover { text-decoration: underline; }
+.row .title small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--muted); font-size: .8125rem; line-height: 1.4; margin-top: .125rem; }
+.row .moves { display: flex; gap: .125rem; justify-content: flex-end; }
+.row .moves button { width: 2.75rem; height: 2.75rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--surface); cursor: pointer; display: grid; place-items: center; }
+.row .moves button:disabled { opacity: .35; cursor: default; }
+
+.pill { display: inline-flex; align-items: center; gap: .25rem; padding: .125rem .5rem; border-radius: 99px; font-size: .75rem; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.pill.P0 { color: var(--p0); background: var(--p0-bg); } .pill.P1 { color: var(--p1); background: var(--p1-bg); }
+.pill.P2 { color: var(--p2); background: var(--p2-bg); } .pill.P3 { color: var(--p3); background: var(--p3-bg); }
+.pill.en_cours { color: var(--p2); background: var(--p2-bg); } .pill.pas_commence { color: var(--p3); background: var(--p3-bg); }
+.pill.bloque { color: var(--block); background: var(--block-bg); } .pill.termine, .pill.clos { color: var(--ok); background: var(--ok-bg); }
+.pill.abandonne { color: var(--muted); background: transparent; border-color: var(--muted); }
+.pill.decision { color: var(--block); border-color: var(--block); background: transparent; }
+.pill.orphan { color: var(--p0); border-color: var(--p0); background: transparent; }
+
+.prog { display: flex; align-items: center; gap: .5rem; font: .75rem var(--mono); color: var(--muted); }
+.prog .bar { flex: 1; margin: 0; }
+
+.board { display: grid; grid-template-columns: repeat(4, minmax(15rem, 1fr)); gap: .75rem; overflow-x: auto; }
+.col { background: var(--surface-2); border-radius: var(--radius); padding: .625rem; min-height: 12rem; }
+.col h2 { margin: 0 0 .5rem; font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: flex; justify-content: space-between; }
+.card { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--p3); border-radius: var(--radius); padding: .5rem .625rem; margin-bottom: .5rem; transition: border-color .15s; }
+.card:hover, .card:focus-within { border-color: var(--accent); }
+.card.P0 { border-left-color: var(--p0); } .card.P1 { border-left-color: var(--p1); } .card.P2 { border-left-color: var(--p2); }
+.card .meta { display: flex; gap: .375rem; align-items: center; margin-bottom: .25rem; }
+.card a { display: block; font-size: .875rem; color: var(--text); text-decoration: none; }
+.card a:hover { text-decoration: underline; }
+
+table.items { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); font-size: .875rem; }
+.items caption { text-align: left; color: var(--muted); font-size: .8125rem; padding: 0 0 .5rem; }
+.items th, .items td { text-align: left; padding: .5rem .625rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.items th { background: var(--surface-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); position: sticky; top: 0; }
+.items th button { all: unset; cursor: pointer; display: inline-flex; gap: .25rem; align-items: center; min-height: 1.75rem; }
+.items th button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.items tr.st-fait td, .items tr.st-abandonne td { color: var(--muted); }
+.items tr.st-abandonne .t { text-decoration: line-through; }
+.items td select { background: var(--surface); border: 1px solid var(--border); border-radius: .375rem; padding: .25rem .375rem; min-height: 2.25rem; max-width: 10rem; }
+.items .t small { display: block; color: var(--muted); font-size: .8125rem; }
+/* Ce qu'une session a ecrit sur la tache (npm run chantiers -- --statut/--suivi). */
+.suivi { display: block; color: var(--accent); font-size: .8125rem; font-style: italic; }
+/* Lots d'un chantier (tiroir) : titre, etat calcule, avancement, puis ses taches. */
+.lot { margin: .75rem 0 1rem; padding-top: .5rem; border-top: 1px solid var(--line, rgba(127,127,127,.25)); }
+.lot-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; cursor: pointer; list-style: none; }
+.lot-head::-webkit-details-marker { display: none; }
+.lot-head::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+.lot[open] > .lot-head::before { transform: rotate(90deg); }
+.lot:not([open]) { margin-bottom: .25rem; }
+.lot-head h4 { margin: 0; font-size: .9375rem; }
+.lot-head .prog { display: inline-flex; align-items: center; gap: .375rem; min-width: 9rem; }
+.lot-txt { margin: .25rem 0 .25rem; color: var(--muted); font-size: .8125rem; }
+.pill.lot-fait { background: var(--accent-soft); color: var(--accent); }
+.pill.lot-en_cours { outline: 1px solid var(--accent); }
+.muted { color: var(--muted); }
+.items .note-in { width: 100%; min-width: 9rem; border: 1px solid var(--border); background: var(--surface); padding: .25rem .375rem; border-radius: .375rem; }
+.items td:first-child { white-space: nowrap; }
+.table-wrap { overflow-x: auto; }
+/* Onglet Code : lignes de code par groupe (docs/tracker/code_stats.json). */
+.items.stats td.n, .items.stats th.n { text-align: right; font-family: var(--mono); white-space: nowrap; }
+/* Le nom du groupe est un en-tete de LIGNE : il ne prend pas l'habillage des en-tetes
+   de colonne (majuscules, fond, position collante), qui le rendrait illisible. */
+.items.stats tbody th { text-transform: none; letter-spacing: 0; font-size: .875rem; color: var(--text); background: none; position: static; }
+.items.stats tr.somme td, .items.stats tr.somme th { font-weight: 600; background: var(--surface-2); }
+.items.stats tr.hors-prod th, .items.stats tr.hors-prod td { color: var(--muted); }
+.d-up { color: var(--ok); } .d-down { color: var(--accent); }
+.hist { list-style: none; margin: 0; padding: 0; font-size: .875rem; }
+.hist li { padding: .375rem 0; border-bottom: 1px solid var(--border); display: flex; gap: .625rem; align-items: baseline; }
+.count { color: var(--muted); font-size: .8125rem; margin: 0 0 .5rem; }
+
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(48rem, 100vw); background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); transform: translateX(100%); transition: transform .2s ease-out; z-index: 20; display: flex; flex-direction: column; visibility: hidden; }
+.drawer.open { transform: none; visibility: visible; }
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: 10; }
+.drawer-head { display: flex; justify-content: space-between; gap: .75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.drawer-head h2 { margin: .125rem 0 0; font-size: 1.125rem; line-height: 1.35; }
+.drawer-body { padding: 1rem 1.25rem 2.5rem; overflow-y: auto; }
+.drawer-body h3 { margin: 1.125rem 0 .375rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.drawer-body .txt { font-size: .875rem; overflow-wrap: anywhere; }
+.drawer-body code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); padding: 1px .25rem; border-radius: 4px; }
+.ctrl { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+.ctrl label { display: flex; flex-direction: column; gap: .25rem; font-size: .8125rem; color: var(--muted); }
+.ctrl select, .ctrl input, textarea { background: var(--surface); border: 1px solid var(--border); border-radius: .375rem; padding: .375rem .5rem; min-height: 2.75rem; }
+textarea { width: 100%; min-height: 6rem; resize: vertical; }
+.docs a { display: inline-flex; align-items: center; gap: .375rem; margin: .125rem .75rem .125rem 0; font-size: .875rem; }
+.mini { list-style: none; margin: 0; padding: 0; }
+.mini li { display: grid; grid-template-columns: 4.25rem 3rem minmax(0, 1fr) 9rem; gap: .5rem; align-items: center; padding: .375rem 0; border-bottom: 1px solid var(--border); font-size: .875rem; }
+.mini select { min-height: 2.25rem; padding: .125rem .25rem; max-width: 100%; }
+.empty { color: var(--muted); padding: 1.5rem; text-align: center; }
+
+/* Les requêtes média sont en em du réglage du navigateur (16 px par défaut) : 80em = 1280 px. */
+@media (max-width: 80em) {
+  .row { grid-template-columns: 1.25rem 4rem 3.25rem minmax(0, 1fr) 5.5rem; }
+  .row .etat, .row .prog { display: none; }
+}
+@media (max-width: 56em) {
+  .top, .kpis, .tabs, .filters, main { padding-left: 1rem; padding-right: 1rem; }
+  .top { flex-wrap: wrap; }
+  .row { grid-template-columns: 3.5rem minmax(0, 1fr) 5.5rem; }
+  .row .grip, .row .prio-cell { display: none; }
+  .kpi.wide { grid-column: span 1; }
+  .kpi b { font-size: 1.125rem; }
+  .items .hide-m { display: none; }
+  .mini li { grid-template-columns: 4rem minmax(0, 1fr); }
+  .mini li .pill { display: none; }
+  .mini li select { grid-column: 1 / -1; }
+  .filters .search, .filters .search input { flex: 1 1 100%; width: 100%; }
+}
+/* Onglet Taches sur ecran etroit : chaque ligne devient une carte. Le tableau entier
+   (sept colonnes, quatre listes) ne tient qu'au-dela de 80em ; en dessous, la page
+   defilait de cote et le titre de la tache, qui compte le plus, etait ecrase. */
+/* Tableau large : colonnes bornees, un mot long (chemin, id) passe a la ligne au lieu d'elargir la page. */
+.items.tasks .t { overflow-wrap: anywhere; }
+.items.tasks .c-lot select { max-width: 12rem; }
+.items.tasks .note-in { min-width: 7rem; }
+@media (max-width: 80em) {
+  .items.tasks, .items.tasks thead, .items.tasks tbody { display: block; width: 100%; }
+  .items.tasks { border: 0; background: none; }
+  .items.tasks thead tr { display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: .25rem .625rem; margin-bottom: .5rem; }
+  .items.tasks thead th { display: block; border: 0; padding: 0; position: static; background: none; }
+  .items.tasks thead th.c-note { display: none; }
+  .items.tasks tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  .items.tasks tbody tr { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .625rem .75rem; }
+  .items.tasks tbody tr > * { display: block; border: 0; padding: 0; min-width: 0; }
+  .items.tasks .c-id { order: 1; }
+  .items.tasks .c-p { order: 2; }
+  .items.tasks .c-st { order: 3; }
+  .items.tasks .t { order: 4; flex: 1 1 100%; }
+  .items.tasks .c-ch { order: 5; }
+  .items.tasks .c-lot { order: 6; flex: 1 1 10rem; }
+  .items.tasks .c-note { order: 7; flex: 1 1 100%; }
+  .items.tasks td[data-label] { display: flex; align-items: center; gap: .375rem; }
+  .items.tasks td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+  .items.tasks td select { max-width: 100%; }
+  .items.tasks .c-lot select { flex: 1; min-width: 0; }
+  .items.tasks .note-in { flex: 1; min-width: 0; }
+}
+
+/* Responsive des autres vues (2026-10-17) : rien ne doit sortir de l'écran, quelle que soit la largeur. */
+/* Tableau : les colonnes passent à la ligne au lieu de pousser la page de côté. */
+.board { grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); overflow-x: visible; }
+.col { min-width: 0; }
+.card a, .card .meta { overflow-wrap: anywhere; }
+/* Terminés & clos : grille portée par une classe (plus de style en ligne). */
+.row.done { grid-template-columns: 4rem minmax(0, 1fr) 7rem 7rem; }
+@media (max-width: 56em) {
+  /* Onglets : tous visibles, sur deux lignes s'il le faut (une barre qui défile cachait les derniers). */
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+  .tabs button { padding: .5rem .625rem; }
+  /* Filtres : chaque liste prend la largeur, ses libellés longs ne l'élargissent plus. */
+  .filters label:not(.chk) { flex: 1 1 100%; min-width: 0; }
+  .filters label:not(.chk) select { flex: 1; min-width: 0; width: 100%; }
+  .row.done { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  .row.done > :nth-child(n+3) { grid-column: 2; }
+  /* Code : deux colonnes de détail masquées, le reste tient sans défilement. */
+  .items.stats .hm { display: none; }
+  .items.stats th, .items.stats td { padding: .5rem .375rem; }
+}
+
+/* Un chemin ou une commande en <code> passe à la ligne plutôt que d'élargir la page. */
+main code { overflow-wrap: anywhere; }
+@media (max-width: 30em) {
+  .items.stats thead th { white-space: normal; font-size: .6875rem; letter-spacing: 0; }
+  .items.stats th, .items.stats td { padding: .375rem .25rem; }
+  .items.stats tbody th { font-size: .8125rem; }
+  /* Δ brut : l'historique sous le tableau donne déjà l'évolution. */
+  .items.stats tr > :last-child { display: none; }
+}
+html, body { overflow-x: hidden; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

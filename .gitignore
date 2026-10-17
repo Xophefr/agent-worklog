@@ -1,0 +1,6 @@
+node_modules/
+# Données produites par les scripts à partir des modèles : chaque projet commite les siennes,
+# ce dépôt ne livre que l'outil et les modèles.
+docs/tracker/chantiers.json
+docs/tracker/chantiers.json.bak
+docs/tracker/code_stats.json
