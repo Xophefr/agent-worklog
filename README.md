@@ -2,7 +2,7 @@
 
 **Suivi des chantiers d'un projet logiciel, tenu à jour par les agents de code et lu sur un tableau local.**
 
-Les agents de code (Claude Code, Codex, Cursor…) avancent vite, et l'état du projet se perd entre deux sessions : ce qui est fait, ce qui est seulement livré, ce qui attend une décision. agent-worklog donne au projet un registre unique, en Markdown, versionné avec le code. Les agents l'écrivent à chaque étape ; le responsable le lit sur un tableau qui se met à jour seul.
+Les agents de code (Claude Code, Codex, Cursor…) avancent vite, et l'état du projet se perd entre deux sessions : ce qui est fait, ce qui est seulement livré, ce qui attend une décision. agent-worklog donne au projet un registre unique, en Markdown, versionné avec le code. Les agents l'écrivent à chaque étape ; le responsable du projet le lit sur un tableau qui se met à jour seul mais sur lequel il peut intervenir.
 
 - **Trois fichiers Markdown** dans le dépôt : l'état des chantiers, le backlog des tâches, une spec par chantier.
 - **Un tableau local** à cinq vues (priorisation, kanban, tâches, terminés, code), sans dépendance, accessible au clavier, utilisable sur téléphone.
