@@ -12,10 +12,23 @@ Les agents de code (Claude Code, Codex, Cursor…) avancent vite, et l'état du 
 
 Aucune dépendance npm. Node.js 20 ou plus ; PHP en option.
 
+### Au quotidien
+
+Vous suivez l'avancement d'un coup d'œil sur le tableau : chantiers par priorité, tâches en cours, livrées ou faites, décisions qui vous attendent, et l'évolution du code. Chaque tâche porte la dernière phrase de suivi de l'agent : ce qui vient d'être fait et ce qui reste.
+
+Comme tout le contexte d'un chantier est écrit dans le dépôt (son état, ses tâches, sa spec, son journal), une consigne courte suffit pour lancer le travail :
+
+```text
+Traite le chantier CH-04
+```
+
+L'agent lit la ligne du chantier, sa spec et ses tâches ouvertes, ouvre une ligne de journal, avance lot par lot en tenant le tableau à jour, puis ferme la session avec ce qui reste. La session suivante, la même consigne reprend là où il s'est arrêté, quel que soit l'agent.
+
 ---
 
 ## Sommaire
 
+- [Au quotidien](#au-quotidien)
 - [Démarrage rapide](#démarrage-rapide)
 - [Installer dans un projet](#installer-dans-un-projet)
 - [Fonctionnement](#fonctionnement)
@@ -136,7 +149,15 @@ Une tâche livrée n'est pas une tâche faite : `a_verifier` veut dire « commit
 
 ## Brancher un agent de code
 
-L'agent suit une procédure courte : ouvrir la session dans le journal, passer ses tâches en cours, écrire un suivi à chaque étape, livrer en `a_verifier`, fermer avec `--strict`. Le texte de cette procédure est fourni dans [`integrations/`](integrations/).
+L'agent suit une procédure courte : ouvrir la session dans le journal, passer ses tâches en cours, écrire un suivi à chaque étape, livrer en `a_verifier`, fermer avec `--strict`, et savoir ce que veut dire « Traite le chantier CH-xx ». Le texte de cette procédure est fourni dans [`integrations/`](integrations/), sous deux formes :
+
+| Fichier | Contenu | Pour |
+|---|---|---|
+| [`claude-code/skills/chantiers/SKILL.md`](integrations/claude-code/skills/chantiers/SKILL.md) | la procédure complète, en skill | Claude Code |
+| [`claude-code/CLAUDE.md`](integrations/claude-code/CLAUDE.md) | trois lignes qui renvoient au skill | Claude Code |
+| [`codex/AGENTS.md`](integrations/codex/AGENTS.md) | la même procédure complète, en un bloc autonome | Codex et tous les autres agents |
+
+Le bloc `CLAUDE.md` est court parce que Claude Code sait charger un skill à la demande : la procédure n'occupe le contexte que quand la session touche un chantier. Les autres agents lisent leur fichier d'instructions en entier à chaque session : ils reçoivent donc la procédure complète.
 
 ### Claude Code
 
@@ -150,7 +171,9 @@ L'agent suit une procédure courte : ouvrir la session dans le journal, passer s
 Chaque session de travail invoque le skill `chantiers` au début, à chaque étape livrée et à la fin.
 ```
 
-Claude Code charge le skill de lui-même quand la session touche un chantier ou une tâche. On peut aussi le demander : `/chantiers`.
+Claude Code charge le skill de lui-même quand la session touche un chantier ou une tâche. On peut aussi l'appeler directement : `/chantiers`.
+
+> **Claude Code et Codex sur le même projet** : poser le bloc complet dans `AGENTS.md` (voir Codex), puis écrire dans `CLAUDE.md` la seule ligne `@AGENTS.md`. Claude Code importe alors le même texte, et il n'y a plus qu'un fichier à tenir.
 
 ### Codex
 
@@ -170,7 +193,7 @@ Le bloc `AGENTS.md` est autonome : il suffit de le placer là où l'agent lit se
 
 Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d'éditer trois fichiers Markdown. Aucune intégration propre à un outil n'est nécessaire.
 
-> Les deux textes viennent de la même source : `AGENTS.md` est le skill Claude Code sans son en-tête. Si vous adaptez la procédure, modifiez le skill puis régénérez le bloc, ou modifiez les deux.
+> Les deux textes viennent de la même source : `AGENTS.md` est le skill Claude Code sans son en-tête. Pour adapter la procédure, modifier le skill, puis lancer `npm run agents:sync`, qui régénère `integrations/codex/AGENTS.md` (`npm test` signale un écart entre les deux).
 
 ---
 
@@ -186,6 +209,7 @@ Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d
 | `npm run chantiers -- --session <nom> --lot ID=<n>` | place une tâche dans un lot de la spec |
 | `npm run tracker` | sert le tableau sur `http://localhost:4173/` (`-- --port 8080` pour changer) |
 | `npm run code:stats` | ajoute le relevé du jour à l'onglet « Code » (`-- --check` : affiche seulement) |
+| `npm run agents:sync` | régénère le bloc `AGENTS.md` depuis le skill Claude Code (dans ce dépôt) |
 | `npm test` | tests de l'outil |
 
 `--statut`, `--suivi`, `--chantier` et `--lot` sont répétables dans une même commande. Statuts : `a_faire`, `en_cours`, `a_verifier`, `fait`, `abandonne`. Toutes les commandes acceptent `--root <dossier>` ; sinon la racine du projet est le premier dossier parent qui contient `tracker.config.json`.
@@ -320,6 +344,7 @@ agent-worklog/
 │   ├── code-stats.mjs            npm run code:stats
 │   ├── config.mjs                lecture de tracker.config.json
 │   ├── install.mjs               installation dans un projet
+│   ├── sync-agents.mjs           npm run agents:sync
 │   ├── install-code-stats-task.ps1
 │   └── worklog.test.mjs          npm test
 ├── integrations/

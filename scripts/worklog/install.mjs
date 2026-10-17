@@ -41,7 +41,7 @@ function main() {
   for (const f of UI_FILES) { copyFileSync(join(SRC, "docs", "tracker", f), join(ui, f)); log("copié", join(ui, f)); }
   const sd = join(dest, "scripts", "worklog");
   mkdirSync(sd, { recursive: true });
-  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && n !== "install.mjs")) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
+  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !["install.mjs", "sync-agents.mjs"].includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
 
   // 3. Docs du projet : modèles posés seulement s'ils manquent.
   const modeles = [

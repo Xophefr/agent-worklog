@@ -12,6 +12,7 @@
     "tracker": "node scripts/worklog/serve.mjs",
     "code:stats": "node scripts/worklog/code-stats.mjs",
     "install-into": "node scripts/worklog/install.mjs",
+    "agents:sync": "node scripts/worklog/sync-agents.mjs",
     "test": "node --test scripts/worklog/worklog.test.mjs"
   }
 }

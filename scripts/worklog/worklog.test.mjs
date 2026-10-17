@@ -11,6 +11,7 @@ import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
 import { loadConfig } from "./config.mjs";
+import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -139,4 +140,8 @@ test("serveur : sert le tableau, écrit un patch, refuse le reste", async (t) =>
   assert.equal(j.version, data.meta.version + 1);
   const saved = JSON.parse(readFileSync(join(dir, "docs", "tracker", "chantiers.json"), "utf8"));
   assert.equal(saved.items.find((i) => i.id === "API-01").statut, "fait");
+});
+
+test("AGENTS.md (Codex) est à jour avec le skill Claude Code", () => {
+  assert.equal(readFileSync(AGENTS, "utf8"), agentsFromSkill(readFileSync(SKILL, "utf8")), "lancer npm run agents:sync");
 });

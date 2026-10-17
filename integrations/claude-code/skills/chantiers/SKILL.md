@@ -62,6 +62,20 @@ Sous PowerShell, passer les textes de `--suivi` entre guillemets doubles.
    `npm run chantiers -- --strict` sans INCOHÉRENCE sur son chantier ; commiter ses propres
    chemins (`docs/CHANTIERS.md`, `docs/chantiers/backlog.md`, `docs/tracker/chantiers.json`).
 
+## « Traite le chantier CH-xx »
+
+Cette consigne seule suffit : tout le contexte est dans le dépôt.
+
+1. Lire la ligne du chantier dans `docs/CHANTIERS.md` (état, prochaine action, décisions en
+   attente) et sa spec (doc de reprise : décisions, découpage en lots, section « Reprise »).
+2. Lister ses tâches ouvertes (`a_faire`, `en_cours`) dans `docs/tracker/chantiers.json` ;
+   commencer par le premier lot non fini, puis par priorité (P0 d'abord).
+3. Une décision en attente bloque une tâche : la POSER au responsable (options,
+   recommandation) avant d'écrire le code qui en dépend ; avancer en attendant sur le reste.
+4. Dérouler le cycle ci-dessus : ouverture, suivi à chaque étape, livraison, constat.
+5. Avant de s'arrêter : section « Reprise » de la spec et ligne du chantier à jour, pour
+   que la même consigne, à la session suivante, reprenne exactement là.
+
 ## Nouveau chantier, nouvelle tâche
 
 - **Tâche** : une ligne `| PRE-nn | P1 | **Titre.** détail | attendu |` dans la section du
