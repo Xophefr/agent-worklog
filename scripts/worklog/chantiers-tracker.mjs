@@ -71,7 +71,7 @@ export function parseBacklog(text, marque = marqueRe()) {
     const h = line.match(/^(#{2,3})\s+(.+)$/);
     if (h && !HEAD_RE.test(line)) {
       // Le rattachement vient d'une section « ## CH-xx » ; une sous-section ne fait que la préciser.
-      // « ### 4.17 Mémoire `MEM` » se lit « Mémoire » : ni numéro, ni code du domaine.
+      // « ### 4.2 Recherche `RCH` » se lit « Recherche » : ni numéro, ni code du domaine.
       section = clean(h[2]).replace(/^[\d.]+\s+/, "").replace(/\s+`[A-Z0-9]+`$/, "");
       if (h[1] === "##") { const ch = section.match(/^(CH-\d+)\b/); chantier = ch ? ch[1] : null; }
       continue;
@@ -190,7 +190,7 @@ export function parseLots(specText) {
     if (!m) continue;
     const body = m[2];
     const b = body.match(/^\*\*(.+?)\*\*/);
-    // Sans ses parenthèses, « Tooltip (MAR-02), puis » ne doit pas laisser « Tooltip , puis ».
+    // Sans ses parenthèses, « Liste (API-02), puis » ne doit pas laisser « Liste , puis ».
     const titre = b ? clean(b[1]) : clean(body.replace(/\([^)]*\)/g, "").replace(/[*`]/g, "")).replace(/\s+([,.])/g, "$1").replace(/[ .,:;]+$/, "").slice(0, 70);
     lots.push({ id: m[1], titre, texte: clean(body) });
   }

@@ -59,22 +59,22 @@ test("backlog : titre, chantier de la section, marque de décision sans accent",
 
 test("backlog : tâche en titre ou en paragraphe, id à chiffres, annexe ignorée, rattachement du réglage", () => {
   const its = parseBacklog(`## 4. Chantiers par domaine
-### 4.17 Mémoire \`MEM\`
-#### MEM-01 : écrire la mémoire \`P1\` [COUNCIL]
+### 4.2 Recherche \`RCH\`
+#### RCH-01 : indexer les pages \`P1\` [ARBITRAGE]
 **I18N-04** \`P2\` : traduire les pages, ${"long ".repeat(40)}fin
-| MEM-02 | P0 | ${"x".repeat(200)} | attendu |
+| RCH-02 | P0 | ${"x".repeat(200)} | attendu |
 ## Annexe A : revue
-| MEM-09 | P1 | citée seulement | — |`, marqueRe("[COUNCIL]"));
-  assert.deepEqual(its.map((i) => i.id), ["MEM-01", "I18N-04", "MEM-02"]);
-  assert.equal(its[0].titre, "écrire la mémoire");
+| RCH-09 | P1 | citée seulement | — |`, marqueRe("[ARBITRAGE]"));
+  assert.deepEqual(its.map((i) => i.id), ["RCH-01", "I18N-04", "RCH-02"]);
+  assert.equal(its[0].titre, "indexer les pages");
   assert.equal(its[0].decision, true);
   assert.equal(its[1].decision, false);
-  assert.equal(its[0].section, "Mémoire");
+  assert.equal(its[0].section, "Recherche");
   assert.equal(its[1].domaine, "I18N");
   assert.equal(its[2].titre.length, 160);
   assert.equal(its[2].constat.length, 200);  // le texte entier n'est pas perdu
-  const d = rattachementsParDefaut({ "CH-07": "MEM-01 MEM-02", "CH-08": ["I18N-04"] });
-  assert.equal(d.get("MEM-02"), "CH-07");
+  const d = rattachementsParDefaut({ "CH-07": "RCH-01 RCH-02", "CH-08": ["I18N-04"] });
+  assert.equal(d.get("RCH-02"), "CH-07");
   assert.equal(d.get("I18N-04"), "CH-08");
 });
 
