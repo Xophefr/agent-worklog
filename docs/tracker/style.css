@@ -247,6 +247,11 @@ textarea { width: 100%; min-height: 6rem; resize: vertical; }
 .mini li { display: grid; grid-template-columns: 4.25rem 3rem minmax(0, 1fr) 9rem; gap: .5rem; align-items: center; padding: .375rem 0; border-bottom: 1px solid var(--line); font-size: .875rem; }
 .mini select { min-height: 2.25rem; padding: .125rem .25rem; max-width: 100%; }
 .empty { color: var(--muted); padding: 1.5rem; text-align: center; }
+/* Serveur injoignable : lecture seule sur la dernière copie (couleurs d'avertissement, clair et sombre). */
+.hors-ligne { margin: 0 0 .75rem; padding: .625rem 1rem; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn); border-radius: var(--radius-s); font-weight: 600; }
+/* Zone d'annonce toujours dans la page (lecteurs d'écran) : invisible tant qu'elle est vide. */
+.hors-ligne:empty { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); }
+select:disabled, input:disabled, textarea:disabled, button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* Les requêtes média sont en em du réglage du navigateur (16 px par défaut) : 80em = 1280 px. */
 @media (max-width: 80em) {

@@ -22,9 +22,13 @@ const MIGRATIONS = [
     `CREATE TABLE IF NOT EXISTS wl_historique (n ${t.auto}, projet_id ${t.cle} NOT NULL, objet VARCHAR(32) NOT NULL, objet_id ${t.cle} NOT NULL, champ VARCHAR(64) NOT NULL, avant ${t.texte}, apres ${t.texte}, auteur ${t.texte} NOT NULL, type_auteur VARCHAR(16) NOT NULL, quand ${t.date} NOT NULL)${fin(d)}`,
     `CREATE INDEX wl_historique_objet ON wl_historique (projet_id, objet, objet_id)`,
   ],
+  // 2 : identifiants d'opération déjà appliqués (une opération rejouée n'écrit pas deux fois).
+  (d, t) => [
+    `CREATE TABLE IF NOT EXISTS wl_operations (uid VARCHAR(64) PRIMARY KEY, projet_id ${t.cle} NOT NULL, quand ${t.date} NOT NULL)${fin(d)}`,
+  ],
 ];
 
-export const TABLES = ["wl_historique", "wl_code", "wl_specs", "wl_journal", "wl_taches", "wl_chantiers", "wl_jetons", "wl_projets", "wl_schema"];
+export const TABLES = ["wl_operations", "wl_historique", "wl_code", "wl_specs", "wl_journal", "wl_taches", "wl_chantiers", "wl_jetons", "wl_projets", "wl_schema"];
 
 export async function migrer(base) {
   const d = base.dialecte;

@@ -1,6 +1,6 @@
 {
   "name": "agent-worklog",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Suivi des chantiers d'un projet logiciel, tenu à jour par les agents de code et lu sur un tableau local.",
   "private": true,
   "license": "MIT",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "chantiers": "node scripts/worklog/chantiers-tracker.mjs",
+    "verrou": "node scripts/worklog/verrou.mjs",
     "tracker": "node scripts/worklog/serve.mjs",
     "accueil": "node scripts/worklog/accueil.mjs",
     "bff": "node scripts/worklog/bff.mjs",

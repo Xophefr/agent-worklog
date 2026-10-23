@@ -115,6 +115,30 @@ elle l'affiche (« était … (auteur, heure) ») : le dire au responsable si ce
 Les specs restent des fichiers du dépôt, versionnés avec le code. « BFF injoignable » : ne rien
 réécrire à la main dans les `.md`, prévenir le responsable (tunnel, BFF arrêté).
 
+### Hors ligne : code 75 = EN ATTENTE, pas en base
+
+Si le BFF est injoignable, une écriture n'échoue pas : elle est mise en attente sur le poste et la
+commande sort avec le **code 75** (« EN ATTENTE … PAS encore en base »). Ce n'est pas fait : ne
+pas annoncer la tâche comme enregistrée, le dire au responsable. Elle est rejouée, dans l'ordre,
+avant la commande suivante, sans double envoi.
+
+- `npm run chantiers -- attente` liste la file et les conflits.
+- Un `CONFLIT …` (la fiche a changé entre-temps) n'écrase rien : la commande sort avec le **code 1**
+  et la ligne `CONFLIT` est affichée. Montrer les deux valeurs au responsable, puis
+  `attente appliquer <uid> --session s` (ma valeur) ou `attente abandonner <uid>`.
+- Créer hors ligne demande `--id` ; sans lui, la commande sort avec le **code 2** et rien n'est
+  parti. Si la réponse n'est pas revenue (délai dépassé ou connexion coupée), l'id est donné au
+  rejeu, ou se retrouve avec `taches`.
+- Une lecture hors ligne (`voir`, `taches`, ou toute commande sans écriture) sort avec le **code 75**
+  et montre la dernière copie (« copie du … — serveur injoignable ») : ce n'est pas un échec
+  d'écriture, mais les données peuvent être anciennes. Ne pas en tirer d'écriture sans l'avoir
+  relue en ligne.
+- Un refus (401, 403, 404, 408, 429, 5xx) arrête le rejeu et garde la file (« N en attente
+  (raison) ») : prévenir le responsable.
+
+Dépôt public : jamais `--no-verify`. Si le verrou (`npm run verrou`) refuse un commit, corriger le
+fichier signalé, ne pas le contourner.
+
 ### Règles
 
 - **Une décision qui revient au responsable se POSE** (question, options, recommandation)

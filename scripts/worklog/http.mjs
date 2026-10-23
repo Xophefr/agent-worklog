@@ -18,7 +18,7 @@ export function send(res, code, body, type = "application/json; charset=utf-8", 
   res.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", ...headers });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
-export const fail = (res, code, error) => send(res, code, { ok: false, error });
+export const fail = (res, code, error, details) => send(res, code, { ok: false, error, ...details });
 
 /** Requête adressée au poste local (Host) : refuse une page tierce qui passerait par un nom rebondi vers 127.0.0.1. */
 export function isLocalHost(req) {

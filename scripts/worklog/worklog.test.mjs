@@ -2,7 +2,7 @@
 // enregistrement du tableau (patch.mjs et serveur), relevé de code.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -24,6 +24,8 @@ import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
 import { summarize } from "./resume.mjs";
 import { createAccueil } from "./accueil.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
+import { analyser, lireInterdits, verifierDepot } from "./verrou.mjs";
+import { abandonner, avecVerrou, conflitsEnAttente, enAttente, enfiler, garderCopie, lireCopie, mettreDeCote, objetsTouches, rafraichirVerrou } from "./attente.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -217,17 +219,17 @@ test("registre : id, ajout, doublon, retrait, fichier cassé", (t) => {
   const p1 = mkdtempSync(join(tmpdir(), "wl-p1-"));
   const p2 = mkdtempSync(join(tmpdir(), "wl-p2-"));
   t.after(() => [home, p1, p2].forEach((d) => rmSync(d, { recursive: true, force: true })));
-  writeFileSync(join(p1, "tracker.config.json"), JSON.stringify({ projet: "Réplycite Pro" }));
+  writeFileSync(join(p1, "tracker.config.json"), JSON.stringify({ projet: "Équipe Pro" }));
   const file = registryFile({ AGENT_WORKLOG_HOME: home });
   assert.deepEqual(loadRegistry(file), { projets: [] });
-  assert.equal(slugId("Réplycite  Pro!"), "replycite-pro");
+  assert.equal(slugId("Équipe  Pro!"), "equipe-pro");
   const reg = loadRegistry(file);
   const e = addProject(reg, p1);
-  assert.equal(e.id, "replycite-pro");
+  assert.equal(e.id, "equipe-pro");
   assert.equal(e.type, "fichiers");
-  assert.equal(addProject(reg, p1.replaceAll("/", "\\") + "\\").id, "replycite-pro");
+  assert.equal(addProject(reg, p1.replaceAll("/", "\\") + "\\").id, "equipe-pro");
   assert.equal(reg.projets.length, 1);
-  writeFileSync(join(p2, "tracker.config.json"), JSON.stringify({ projet: "Replycite pro" }));
+  writeFileSync(join(p2, "tracker.config.json"), JSON.stringify({ projet: "Equipe pro" }));
   assert.throws(() => addProject(reg, p2), /id déjà pris/);
   assert.equal(addProject(reg, p2, { id: "autre" }).id, "autre");
   assert.throws(() => addProject(reg, home), /pas de tracker.config.json/);
@@ -354,7 +356,8 @@ test("install.mjs inscrit le projet à l'accueil, une seule fois", (t) => {
   const reg = loadRegistry(registryFile({ AGENT_WORKLOG_HOME: home }));
   assert.deepEqual(reg.projets.map((p) => p.id), ["mon-projet"]);
   // Le BFF et ce qui ne sert qu'à lui restent dans agent-worklog : aucun projet n'a de dépendance.
-  for (const f of ["bff.mjs", "operations.mjs", "export-md.mjs", "accueil.mjs"]) assert.equal(existsSync(join(dir, "scripts", "worklog", f)), false, f);
+  assert.equal(existsSync(join(dir, "scripts", "worklog", "attente.mjs")), true, "attente.mjs est importé par client.mjs");
+  for (const f of ["bff.mjs", "operations.mjs", "export-md.mjs", "accueil.mjs", "verrou.mjs"]) assert.equal(existsSync(join(dir, "scripts", "worklog", f)), false, f);
   assert.equal(existsSync(join(dir, "scripts", "worklog", "base")), false);
   assert.equal(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).dependencies, undefined);
 });
@@ -493,7 +496,7 @@ test("export Markdown : relu par le mode fichiers sans perte", () => {
   // Titre tiré du début de la cellule, qui contient déjà du gras (backlog réel).
   const cel = "Grille du 5 octobre (note §10). **Plans en base** : migration";
   creerTache(d, { chantier: "CH-01", titre: cel, constat: cel, id: "API-09" });
-  // Marque de décision écrite dans l'attendu (backlog réel de FXMe) : le titre n'en reçoit pas une seconde.
+  // Marque de décision écrite dans l'attendu (backlog réel d'un projet) : le titre n'en reçoit pas une seconde.
   creerTache(d, { chantier: "CH-01", titre: "Lien manquant", constat: "Lien manquant", attendu: "à trancher DÉCISION", decision: true, id: "API-10" });
   ajouterJournal(d, { date: "2026-10-23", session: "s1", chantiers: "CH-01", texte: "OUVERT. a | b" });
   d.journal.consigne = "Ajout seul.";
@@ -516,15 +519,16 @@ test("export Markdown : relu par le mode fichiers sans perte", () => {
 });
 
 // ---------- mode base : suite de contrat, sur chaque base de test fournie ----------
+// WORKLOG_TEST_REEL (facultatif) : chemin d'un chantiers.json réel pour le test d'import volumineux.
 // Les URL viennent de l'environnement ou de ~/.agent-worklog/test-bases.env (jamais affichées).
 // Les tables wl_* de ces bases sont effacées à chaque passage : des bases dédiées aux tests.
 function basesDeTest() {
   const env = { ...process.env };
   const f = join(homedir(), ".agent-worklog", "test-bases.env");
   if (existsSync(f)) for (const l of readFileSync(f, "utf8").split(/\r?\n/)) { const m = l.match(/^\s*(WORKLOG_TEST_\w+)\s*=\s*(.+?)\s*$/); if (m && !env[m[1]]) env[m[1]] = m[2]; }
-  return [["PostgreSQL", env.WORKLOG_TEST_PG], ["MySQL", env.WORKLOG_TEST_MYSQL]].filter(([, u]) => u);
+  return { bases: [["PostgreSQL", env.WORKLOG_TEST_PG], ["MySQL", env.WORKLOG_TEST_MYSQL]].filter(([, u]) => u), reel: env.WORKLOG_TEST_REEL };
 }
-const BASES = basesDeTest();
+const { bases: BASES, reel: REEL } = basesDeTest();
 if (!BASES.length) test("mode base : aucune base de test (WORKLOG_TEST_PG / WORKLOG_TEST_MYSQL), suite de contrat sautée", { skip: true }, () => {});
 
 async function baseNeuve(url) {
@@ -597,8 +601,8 @@ for (const [nom, url] of BASES) {
     const base = await baseNeuve(url);
     t.after(() => base.fermer());
     const depot = creerDepot(base);
-    const reel = "E:/wamp64/www/chatbot_faq/docs/tracker/chantiers.json";
-    const src = existsSync(reel) ? JSON.parse(readFileSync(reel, "utf8")) : build();
+    const reel = REEL; // chemin d'un chantiers.json réel (facultatif), réglé dans test-bases.env
+    const src = reel && existsSync(reel) ? JSON.parse(readFileSync(reel, "utf8")) : build();
     const journal = { consigne: "Ajout seul.", entrees: [{ date: "2026-10-01", session: "s0", chantiers: "tous", texte: "init", commits: "—", docs: "—" }] };
     const quoi = { id: "repli", nom: "Repli", ui: { accent: "#7fae2a" }, data: src, journal, textes: { chantiersMd: "# brut", backlogMd: "# brut aussi" }, specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] };
     await importer(depot, quoi, { nom: "import", type: "session" });
@@ -623,6 +627,47 @@ for (const [nom, url] of BASES) {
 }
 
 for (const [nom, url] of BASES) {
+  test(`base ${nom} : uid idempotent, garde par version et par date`, async (t) => {
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    await importer(depot, { id: "p", nom: "P", data: build() }, { nom: "import", type: "session" });
+    const op = (d) => modifierTache(d, "API-01", { statut: "fait" });
+    const r1 = await depot.ecrire("p", S1, op, { uid: "u-00000001" });
+    assert.equal(r1.deja, undefined);
+    const r2 = await depot.ecrire("p", S1, op, { uid: "u-00000001" });
+    assert.equal(r2.deja, true);
+    assert.equal(r2.resultat, null);
+    assert.deepEqual(r2.changements, []);
+    assert.equal(r2.version, r1.version);
+    assert.equal((await depot.historique("p", "tache", "API-01")).filter((l) => l.champ === "statut").length, 1);
+    const v = r1.version;
+    await depot.ecrire("p", MOI, (d) => modifierTache(d, "API-01", { note: "vu" }));           // autre auteur, autre champ
+    await depot.ecrire("p", S1, (d) => modifierTache(d, "API-01", { statut: "a_verifier" }), { garde: { version: v } }); // pas de conflit
+    await depot.ecrire("p", MOI, (d) => modifierTache(d, "API-02", { statut: "fait" }));
+    const avant = (await depot.lire("p")).meta.version;
+    await assert.rejects(depot.ecrire("p", S1, (d) => modifierTache(d, "API-02", { statut: "en_cours" }), { garde: { version: v }, uid: "u-00000002" }),
+      (e) => e.code === 409 && e.details.conflits[0].champ === "statut" && e.details.conflits[0].auteur === "moi"
+        && e.details.conflits[0].voulu === "en_cours" && e.details.conflits[0].enBase === "fait" && e.details.conflits[0].objet_id === "API-02");
+    // conflit : transaction annulée, uid non retenu
+    assert.equal((await depot.lire("p")).meta.version, avant);
+    assert.equal((await depot.lire("p")).items.find((i) => i.id === "API-02").statut, "fait");
+    const r3 = await depot.ecrire("p", S1, (d) => modifierTache(d, "API-02", { statut: "en_cours" }), { uid: "u-00000002" });
+    assert.equal(r3.deja, undefined);
+    // ses propres écritures ne sont pas un conflit
+    await depot.ecrire("p", S1, (d) => modifierTache(d, "API-03", { statut: "fait" }));
+    await depot.ecrire("p", S1, (d) => modifierTache(d, "API-03", { statut: "a_verifier" }), { garde: { version: v } });
+    // garde par date (session sans version connue) : une modification d'avant la date n'est pas un conflit
+    const depuis = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    await depot.ecrire("p", S1, (d) => modifierTache(d, "API-02", { note: "après" }), { garde: { depuis } });
+    // … mais une modification d'un autre auteur après la date en est un
+    await depot.ecrire("p", MOI, (d) => modifierTache(d, "API-02", { note: "autre" }));
+    await assert.rejects(depot.ecrire("p", S1, (d) => modifierTache(d, "API-02", { note: "encore" }), { garde: { depuis: "2000-01-01T00:00:00Z" } }),
+      (e) => e.code === 409 && e.details.conflits[0].champ === "note" && e.details.conflits[0].auteur === "moi");
+  });
+}
+
+for (const [nom, url] of BASES) {
   test(`BFF ${nom} : jetons, opérations, auteur remplacé, conflit, historique, export, import`, async (t) => {
     const base = await baseNeuve(url);
     t.after(() => base.fermer());
@@ -641,7 +686,7 @@ for (const [nom, url] of BASES) {
     };
 
     assert.equal((await appel("/api/projets", { jeton: null })).status, 401);
-    const cree = await appel("/api/projets", { corps: { id: "a", nom: "Alpha" }, auteur: "Xophe" });
+    const cree = await appel("/api/projets", { corps: { id: "a", nom: "Alpha" }, auteur: "Dupont" });
     assert.equal(cree.status, 200);
     const ja = (await cree.json()).jeton;
     await appel("/api/projets", { corps: { id: "b", nom: "Beta" } });
@@ -653,10 +698,10 @@ for (const [nom, url] of BASES) {
     const r1 = await (await op("a", "creerChantier", { titre: "API" }, { jeton: ja, session: "s1" })).json();
     assert.equal(r1.resultat, "CH-01");
     await op("a", "creerTache", { chantier: "CH-01", titre: "Lire", domaine: "API" }, { jeton: ja, session: "s1" });
-    await op("a", "modifierTache", { id: "API-01", champs: { statut: "fait" } }, { auteur: "Xophe" });
+    await op("a", "modifierTache", { id: "API-01", champs: { statut: "fait" } }, { auteur: "Dupont" });
     const r2 = await (await op("a", "session", { statuts: [["API-01", "en_cours"]], suivis: [["API-01", "reprise"]] }, { jeton: ja, session: "s2" })).json();
     const st = r2.changements.find((c) => c.champ === "statut");
-    assert.deepEqual([st.avant, st.apres, st.auteurAvant.nom, st.auteurAvant.type], ["fait", "en_cours", "Xophe", "interface"]);
+    assert.deepEqual([st.avant, st.apres, st.auteurAvant.nom, st.auteurAvant.type], ["fait", "en_cours", "Dupont", "interface"]);
     assert.equal((await op("a", "modifierTache", { id: "API-01", champs: { statut: "fini" } }, { jeton: ja, session: "s2" })).status, 400);
 
     const data = await (await appel("/p/a/chantiers.json")).json();
@@ -671,6 +716,28 @@ for (const [nom, url] of BASES) {
     const { request } = await import("node:http");
     const hote = await new Promise((ok) => request({ host: "127.0.0.1", port: srv.address().port, path: "/api/p/a/historique?objet=tache&id=API-01", headers: { Host: "evil.example", Authorization: `Bearer ${ji}` } }, (r) => { r.resume(); ok(r.statusCode); }).end());
     assert.equal(hote, 403);
+
+    // uid : forme refusée (400), rejeu sans seconde écriture (deja) ; garde : conflit (409) avec son détail.
+    const opu = (corps) => appel("/api/p/a/operation", { jeton: ja, corps: { op: "modifierTache", session: "s3", ...corps } });
+    assert.equal((await opu({ args: { id: "API-01", champs: { note: "x" } }, uid: "court" })).status, 400);
+    assert.equal((await opu({ args: { id: "API-01", champs: { note: "x" } }, uid: "a/b-00000000" })).status, 400);
+    assert.equal((await opu({ args: { id: "API-01", champs: { note: "x" } }, uid: 12345678 })).status, 400);
+    const u1 = await opu({ args: { id: "API-01", champs: { note: "x" } }, uid: "op-0000000001" });
+    assert.equal(u1.status, 200);
+    const vu = (await u1.json()).version;
+    const u2 = await opu({ args: { id: "API-01", champs: { note: "x" } }, uid: "op-0000000001" });
+    assert.equal(u2.status, 200);
+    const u2j = await u2.json();
+    assert.equal(u2j.deja, true);
+    assert.equal(u2j.version, vu);
+    await op("a", "modifierTache", { id: "API-01", champs: { note: "y" } }, { auteur: "Dupont" });
+    const cf = await opu({ args: { id: "API-01", champs: { note: "z" } }, uid: "op-0000000002", garde: { version: vu } });
+    assert.equal(cf.status, 409);
+    const cfj = await cf.json();
+    assert.equal(cfj.ok, false);
+    assert.deepEqual([cfj.conflits[0].objet, cfj.conflits[0].objet_id, cfj.conflits[0].champ, cfj.conflits[0].voulu, cfj.conflits[0].enBase, cfj.conflits[0].auteur],
+      ["tache", "API-01", "note", "z", "y", "Dupont"]);
+    assert.ok(cfj.conflits[0].quand);
 
     await op("a", "specs", { specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] }, { jeton: ja, session: "s1" });
     await op("a", "modifierChantier", { id: "CH-01", champs: { doc: "`docs/chantiers/CH-01_api.md`" } }, { jeton: ja, session: "s1" });
@@ -742,10 +809,10 @@ for (const [nom, url] of BASES) {
     await run();
     assert.equal(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8").split("Gelé le").length, 2); // une seule fois
 
-    await fetch(`${bff}/api/p/demo-base/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}`, "X-Worklog-Auteur": "Xophe" }, body: JSON.stringify({ op: "modifierTache", args: { id: "API-01", champs: { statut: "fait" } } }) });
+    await fetch(`${bff}/api/p/demo-base/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}`, "X-Worklog-Auteur": "Dupont" }, body: JSON.stringify({ op: "modifierTache", args: { id: "API-01", champs: { statut: "fait" } } }) });
     r = await run("--session", "s1", "--statut", "API-01=en_cours", "--suivi", "API-01=reprise");
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /API-01.*était « fait ».*Xophe/);
+    assert.match(r.out, /API-01.*était « fait ».*Dupont/);
     assert.equal((await lire()).items.find((i) => i.id === "API-01").statut, "en_cours");
     assert.equal((await run("--statut", "API-01=fait")).code, 2); // sans --session
 
@@ -777,10 +844,13 @@ for (const [nom, url] of BASES) {
     assert.match(readFileSync(join(dir, "docs", exp, "backlog.md"), "utf8"), /API-04/);
     assert.equal(JSON.parse(readFileSync(join(dir, "docs", exp, "chantiers.json"), "utf8")).items.find((i) => i.id === "API-04").priorite, "P0");
 
-    // Review Focus 3 : BFF injoignable -> code 1, message clair, rien d'écrit en local.
+    // Review Focus 3 : BFF injoignable -> écriture en attente sur le poste (code 75), message clair, .md intacts.
     const avant = readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8");
     await new Promise((ok) => srv.close(ok));
     r = await run("--session", "s1", "--statut", "API-01=fait");
+    assert.equal(r.code, 75, r.out);
+    assert.match(r.out, /EN ATTENTE : serveur injoignable.*PAS encore en base/);
+    r = await run("--exporter");
     assert.equal(r.code, 1);
     assert.match(r.out, /BFF injoignable/);
     assert.equal(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8"), avant);
@@ -788,6 +858,158 @@ for (const [nom, url] of BASES) {
     r = await run("taches");
     assert.equal(r.code, 2);
     assert.match(r.out, /jeton/);
+  });
+}
+
+for (const [nom, url] of BASES) {
+  test(`sessions hors ligne (${nom}) : attente, rejeu, conflit tranché, copie, rejeu interrompu, rejeu concurrent`, async (t) => {
+    const { execFile } = await import("node:child_process");
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const ui = join(ROOT, "docs", "tracker");
+    let srv = createBff({ depot, uiDir: ui }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    const port = srv.address().port;
+    t.after(() => { srv.closeAllConnections(); if (srv.listening) srv.close(); });
+    const arreter = async () => { srv.closeAllConnections(); if (srv.listening) await new Promise((ok) => srv.close(ok)); };
+    const relancer = async (d = depot) => {
+      srv = createBff({ depot: d, uiDir: ui }).listen(port, "127.0.0.1");
+      await new Promise((r) => srv.once("listening", r));
+    };
+    const bff = `http://localhost:${port}`;
+    const tmp = mkdtempSync(join(tmpdir(), "wl-hl-"));
+    t.after(() => rmSync(tmp, { recursive: true, force: true }));
+    const home = join(tmp, "home");
+    const dir = join(tmp, "proj");
+    mkdirSync(join(dir, "docs", "chantiers"), { recursive: true });
+    mkdirSync(home);
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Démo Base" }));
+    writeFileSync(join(dir, "docs", "CHANTIERS.md"), CHANTIERS);
+    writeFileSync(join(dir, "docs", "chantiers", "backlog.md"), BACKLOG);
+    const ji = await depot.creerJeton(null, "interface");
+    writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [bff]: ji }));
+    const runEnv = (env, ...a) => new Promise((ok) => execFile(process.execPath, [join(ROOT, "scripts", "worklog", "chantiers-tracker.mjs"), "--root", dir, ...a],
+      { env: { ...process.env, AGENT_WORKLOG_HOME: home, WORKLOG_TOKEN: "", WORKLOG_DELAI_BFF: "5000", ...env }, encoding: "utf8" }, (e, stdout, stderr) => ok({ code: e ? e.code : 0, out: stdout + stderr })));
+    const run = (...a) => runEnv({}, ...a);
+    const lire = async () => (await fetch(`${bff}/p/demo-base/chantiers.json`, { headers: { Authorization: `Bearer ${ji}` } })).json();
+    const tache = async (id) => (await lire()).items.find((i) => i.id === id);
+    const fichiersFile = () => readdirSync(join(home, "attente")).filter((n) => n.endsWith(".json"));
+    const fichiersConflits = () => (existsSync(join(home, "attente", "conflits")) ? readdirSync(join(home, "attente", "conflits")).filter((n) => n.endsWith(".json")) : []);
+    const lignes = async (objet, id, champ, apres) => (await depot.historique("demo-base", objet, id)).filter((l) => l.champ === champ && l.apres === apres).length;
+
+    let r = await run("--importer", "--bff", bff);
+    assert.equal(r.code, 0, r.out);
+    r = await run("taches");                                            // copie gardée sur le poste
+    assert.equal(r.code, 0, r.out);
+    await arreter();
+    r = await run("--session", "s1", "--statut", "API-01=fait");
+    assert.equal(r.code, 75, r.out);
+    assert.match(r.out, /EN ATTENTE.*PAS encore en base/);
+    r = await run("--session", "s1", "tache", "ajouter", "CH-01", "--titre", "Hors ligne");
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /--id/);
+    r = await run("--session", "s1", "tache", "maj", "API-02", "--statut", "en_cours");
+    assert.equal(r.code, 75, r.out);
+    assert.match(r.out, /\(2 en attente\)/);
+    r = await run("voir", "CH-01");
+    assert.equal(r.code, 75, r.out);
+    assert.match(r.out, /copie du .* serveur injoignable/);
+    assert.match(r.out, /API-02/);
+    r = await run("attente");
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /En attente : 2/);
+    const jp = JSON.parse(readFileSync(join(home, "jetons.json"), "utf8"))[`${new URL(bff).origin}|demo-base`];
+    for (const f of readdirSync(join(home, "attente")).filter((n) => n.endsWith(".json"))) assert.ok(!readFileSync(join(home, "attente", f), "utf8").includes(jp));
+
+    await relancer();
+    await fetch(`${bff}/api/p/demo-base/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}`, "X-Worklog-Auteur": "Dupont" }, body: JSON.stringify({ op: "modifierTache", args: { id: "API-02", champs: { statut: "fait" } } }) });
+    r = await run("taches");
+    assert.equal(r.code, 0, r.out);
+    assert.equal((await tache("API-01")).statut, "fait");              // passé
+    assert.equal((await tache("API-02")).statut, "fait");              // conflit : pas écrasé
+    assert.match(r.out, /CONFLIT .*API-02.*statut.*Dupont/);
+    const uid = r.out.match(/CONFLIT (\S+)/)[1];
+    assert.equal((await run("attente", "appliquer", uid)).code, 2);   // sans --session
+    r = await run("--session", "s1", "attente", "appliquer", uid);
+    assert.equal(r.code, 0, r.out);
+    assert.equal((await tache("API-02")).statut, "en_cours");
+    r = await run("attente");
+    assert.doesNotMatch(r.out, /CONFLIT/);
+    assert.match(r.out, /En attente : 0/);
+
+    // Rejeu interrompu : le BFF garde la première écriture puis tombe avant de répondre ; après relance, chaque opération une seule fois.
+    await arreter();
+    for (const [id, note] of [["API-01", "i1"], ["API-03", "i2"], ["API-02", "i3"]]) assert.equal((await run("--session", "s1", "tache", "maj", id, "--note", note)).code, 75);
+    let coupe = false;
+    await relancer({ ...depot, ecrire: async (...a) => {
+      const res = await depot.ecrire(...a);
+      if (a[3]?.uid && !coupe) { coupe = true; srv.closeAllConnections(); srv.close(); }
+      return res;
+    } });
+    r = await run("taches");
+    assert.equal(r.code, 75, r.out);                                    // copie : le BFF est tombé pendant le rejeu
+    assert.ok(coupe);
+    assert.equal(await lignes("tache", "API-01", "note", "i1"), 1);
+    await arreter();
+    await relancer();
+    r = await run("taches");
+    assert.equal(r.code, 0, r.out);
+    for (const [id, note] of [["API-01", "i1"], ["API-03", "i2"], ["API-02", "i3"]]) assert.equal(await lignes("tache", id, "note", note), 1, `${id} ${note}`);
+    assert.doesNotMatch(r.out, /CONFLIT/);
+
+    // Rejeu concurrent : deux commandes en même temps, trois opérations en attente -> chacune une seule fois.
+    await arreter();
+    for (const [id, note] of [["API-01", "c1"], ["API-03", "c2"], ["API-02", "c3"]]) assert.equal((await run("--session", "s1", "tache", "maj", id, "--note", note)).code, 75);
+    await relancer();
+    // Jeton refusé (401) : le rejeu s'arrête, la file reste entière, rien n'est mis de côté, la raison est dite.
+    r = await runEnv({ WORKLOG_TOKEN: "faux-jeton" }, "taches");
+    assert.match(r.out, /3 en attente \(le BFF a répondu 401/);
+    assert.equal(fichiersFile().length, 3);
+    assert.equal(fichiersConflits().length, 0);
+    const [a, b] = await Promise.all([run("taches"), run("--session", "s2", "tache", "maj", "API-03", "--priorite", "P0")]);
+    assert.equal(a.code, 0, a.out);
+    assert.equal(b.code, 0, b.out);
+    for (const [id, note] of [["API-01", "c1"], ["API-03", "c2"], ["API-02", "c3"]]) assert.equal(await lignes("tache", id, "note", note), 1, `${id} ${note}`);
+    assert.equal((await tache("API-03")).priorite, "P0");
+    assert.match((await run("attente")).out, /En attente : 0/);
+
+    // Version de la copie : celle de la dernière lecture, jamais avancée par une écriture de la session.
+    const operation = (corps) => fetch(`${bff}/api/p/demo-base/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}`, "X-Worklog-Auteur": "Dupont" }, body: JSON.stringify(corps) });
+    assert.equal((await run("taches")).code, 0);                       // copie à vN
+    await operation({ op: "modifierTache", args: { id: "API-02", champs: { statut: "a_verifier" } } });
+    r = await run("--session", "s1", "tache", "maj", "API-01", "--note", "en ligne");
+    assert.equal(r.code, 0, r.out);
+    await arreter();
+    assert.equal((await run("--session", "s1", "tache", "maj", "API-02", "--statut", "en_cours")).code, 75);
+    await relancer();
+    r = await run("taches");
+    assert.match(r.out, /CONFLIT .*API-02 statut.*Dupont/);
+    assert.equal((await tache("API-02")).statut, "a_verifier");
+    // attente appliquer : uid tiré de celui de l'entrée, un second envoi répond « déjà en base ».
+    const uid2 = r.out.match(/CONFLIT (\S+)/)[1];
+    r = await run("--session", "s1", "attente", "appliquer", uid2);
+    assert.equal(r.code, 0, r.out);
+    assert.equal((await tache("API-02")).statut, "en_cours");
+    const encore = await (await operation({ op: "modifierTache", args: { id: "API-02", champs: { statut: "en_cours" } }, uid: `${uid2}-t` })).json();
+    assert.equal(encore.deja, true);
+
+    // Création sans --id dont la réponse arrive après le délai : gardée avec son uid, créée une seule fois au rejeu.
+    await arreter();
+    await relancer({ ...depot, ecrire: async (...a) => { const res = await depot.ecrire(...a); await new Promise((ok) => setTimeout(ok, 4000)); return res; } });
+    r = await runEnv({ WORKLOG_DELAI_BFF: "2000" }, "--session", "s1", "tache", "ajouter", "CH-01", "--titre", "Lente");
+    assert.equal(r.code, 75, r.out);
+    assert.match(r.out, /la création a peut-être déjà été faite/);
+    const lentes = async () => (await depot.lire("demo-base")).items.filter((i) => i.titre === "Lente").length;
+    assert.equal(await lentes(), 1);                                   // écrite par le BFF, réponse perdue
+    await arreter();
+    await relancer();
+    r = await run("taches");
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /rejoué creerTache.*déjà en base/);
+    assert.match(r.out, /créée/);
+    assert.equal(await lentes(), 1);
+    assert.match((await run("attente")).out, /En attente : 0/);
   });
 }
 
@@ -807,7 +1029,7 @@ for (const [nom, url] of BASES) {
     mkdirSync(home);
     const ji = await depot.creerJeton(null, "interface");
     writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [bff]: ji }));
-    writeFileSync(join(home, "auteur"), "Xophe\n");
+    writeFileSync(join(home, "auteur"), "Dupont\n");
     const projetMd = (nomP) => {
       const d = join(tmp, nomP);
       mkdirSync(join(d, "docs", "chantiers"), { recursive: true });
@@ -843,7 +1065,7 @@ for (const [nom, url] of BASES) {
     const op = await post("/p/beta/api/operation", { op: "creerChantier", args: { titre: "Relayé" } });
     assert.equal(op.status, 200, await op.clone().text());
     const h = await depot.historique("beta", "chantier", "CH-01");
-    assert.deepEqual([h[0].auteur, h[0].type_auteur], ["Xophe", "interface"]);
+    assert.deepEqual([h[0].auteur, h[0].type_auteur], ["Dupont", "interface"]);
     assert.equal((await post("/p/beta/api/operation", { op: "creerChantier", args: { titre: "x" } }, { "Sec-Fetch-Site": "cross-site" })).status, 403);
     assert.equal((await post("/p/beta/save.php", { patch: { chantiers: [{ id: "CH-01", set: { note: "n" }, base: { note: "" } }] } })).status, 200);
     assert.equal((await (await fetch(`${A}/p/beta/api/historique?objet=chantier&id=CH-01`)).json()).lignes[0].champ, "note");
@@ -863,10 +1085,48 @@ for (const [nom, url] of BASES) {
     assert.ok((await depot.projets()).some((p) => p.id === "delta"));
 
     // Review Focus 3 : BFF arrêté -> carte d'erreur, les autres intactes.
+    // Deux autres projets en base : epsilon lu (avec une tâche à lui) avant la coupure, zeta jamais lu (pas de copie).
+    await depot.creerProjet({ id: "epsilon", nom: "Epsilon" }, { nom: "x", type: "interface" });
+    await depot.creerProjet({ id: "zeta", nom: "Zeta" }, { nom: "x", type: "interface" });
+    const reg2 = JSON.parse(readFileSync(registry, "utf8"));
+    reg2.projets.push({ id: "epsilon", type: "base", bff, projet: "epsilon" }, { id: "zeta", type: "base", bff, projet: "zeta" });
+    writeFileSync(registry, JSON.stringify(reg2));
+    assert.equal((await post("/p/epsilon/api/operation", { op: "creerTache", args: { id: "API-01", titre: "Propre à epsilon", domaine: "API" } })).status, 200);
+    assert.equal((await (await fetch(`${A}/p/epsilon/chantiers.json`)).json()).items.length, 1);
+    const portBff = bffSrv.address().port;
+    const erreurs = [];
+    const consoleErreur = console.error;
+    console.error = (...m) => { erreurs.push(m.join(" ")); };
+    t.after(() => { console.error = consoleErreur; });
     await new Promise((r) => bffSrv.close(r));
     liste = await (await fetch(`${A}/api/projets`)).json();
-    assert.match(liste.projets.find((p) => p.id === "beta").erreur, /BFF injoignable/);
+    assert.match(liste.projets.find((p) => p.id === "beta").erreur, /serveur injoignable/);
     assert.equal(liste.projets.find((p) => p.id === "alpha").resume.nom, "Alpha");
+    // Hors ligne : la dernière copie lue est servie en lecture seule, les écritures sont refusées.
+    const hl = await (await fetch(`${A}/p/beta/chantiers.json`)).json();
+    assert.ok(hl.meta.horsLigne && hl.meta.horsLigne.depuis);
+    assert.equal(hl.items.length, db.items.length);
+    assert.equal(hl.meta.accueil.url, "/");
+    const w = await post("/p/beta/api/operation", { op: "modifierTache", args: { id: "API-01", champs: { statut: "fait" } } });
+    assert.equal(w.status, 502);
+    assert.match((await w.json()).error, /serveur injoignable/);
+    const ws = await post("/p/beta/save.php", { patch: { chantiers: [] } });
+    assert.equal(ws.status, 502);
+    // Chaque projet sert sa propre copie.
+    const he = await (await fetch(`${A}/p/epsilon/chantiers.json`)).json();
+    assert.ok(he.meta.horsLigne);
+    assert.deepEqual(he.items.map((i) => i.id), ["API-01"]);
+    assert.notDeepEqual(he.items.map((i) => i.id), hl.items.map((i) => i.id));
+    assert.equal((await fetch(`${A}/p/zeta/chantiers.json`)).status, 502);
+    assert.deepEqual(erreurs, [], "aucune erreur levée en servant la copie");
+    console.error = consoleErreur;
+    // Retour du BFF : la lecture suivante n'est plus hors ligne.
+    const bff2 = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(portBff, "127.0.0.1");
+    await new Promise((r) => bff2.once("listening", r));
+    t.after(() => { if (bff2.listening) bff2.close(); });
+    const back = await (await fetch(`${A}/p/beta/chantiers.json`)).json();
+    assert.equal(back.meta.horsLigne, undefined);
+    assert.equal(back.meta.mode, "base");
   });
 }
 
@@ -958,7 +1218,7 @@ for (const [nom, url] of BASES) {
     const debut = Date.now();
     r = await run({ WORKLOG_DELAI_BFF: "800" }, "taches");
     assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /BFF injoignable/);
+    assert.match(r.out, /serveur injoignable, aucune copie de/);
     assert.ok(Date.now() - debut < 8000);
     const registry = join(home, "projets.json");
     saveRegistry(registry, { projets: [{ id: "m", type: "base", bff: adresse, projet: "m" }, ] });
@@ -969,6 +1229,288 @@ for (const [nom, url] of BASES) {
     await new Promise((ok) => acc.once("listening", ok));
     t.after(() => acc.close());
     const liste = await (await fetch(`http://localhost:${acc.address().port}/api/projets`)).json();
-    assert.match(liste.projets[0].erreur, /BFF injoignable/);
+    assert.match(liste.projets[0].erreur, /serveur injoignable/);
   });
 }
+
+// Verrou du dépôt public : les chaînes piégées sont construites à l'exécution
+// pour que ce fichier passe lui-même le verrou.
+test("verrou : formes génériques refusées, exemples admis", () => {
+  const ip = ["10", "4", "5", "6"].join(".");
+  const cle = "-----BEGIN " + "OPENSSH PRIVATE KEY-----";
+  const cnx = "postgres://u:" + "secret" + "@h/db";
+  const chemin = "C:" + "\\Users\\quelquun\\x";
+  const motifs = (t) => analyser(t, { chemin: "x.md" }).map((r) => r.motif);
+  assert.deepEqual(motifs(`a ${ip} b`), ["ip"]);
+  assert.deepEqual(motifs(cle), ["cle-privee"]);
+  assert.deepEqual(motifs(cnx), ["connexion"]);
+  assert.deepEqual(motifs(chemin), ["chemin-poste"]);
+  assert.deepEqual(motifs("contact " + "a" + "@" + "exemple-reel.fr"), ["email"]);
+  const jeton = "A".repeat(43);
+  assert.deepEqual(motifs("Authorization: Bearer " + jeton), ["jeton"]);
+  assert.deepEqual(motifs('{"x": "' + jeton + '"}'), ["jeton"]);
+  for (const ok of ["127.0.0.1:4180", "192.0.2.10", "0.0.0.0", "postgres://worklog:<mot de passe>@localhost:5432/worklog", "v2.0.0", "1.2.3", "personne@example.com"]) assert.deepEqual(motifs(ok), [], ok);
+});
+test("verrou : spécifications de paquet, SCP git et URL à chemin ne sont pas des emails ou des mots de passe", () => {
+  const motifs = (t) => analyser(t, { chemin: "x.md" }).map((r) => r.motif);
+  for (const ok of ["npm i pkg@3.24.6", "dep: lib@1.2.3-beta.1", "git" + "@" + "github.com:org/depot.git", "http://localhost:4180/x" + "@" + "y", "http://localhost:4180/a@b"]) assert.deepEqual(motifs(ok), [], ok);
+  assert.deepEqual(motifs("postgres://u:" + "secret" + "@h/db"), ["connexion"]);
+  assert.deepEqual(motifs("postgres://u:" + "pa/ss" + "@h/db"), ["connexion"]);
+  assert.deepEqual(motifs("redis://:" + "secret" + "@h:6379"), ["connexion"]);
+  for (const ko of ["x" + "@" + "hote-reel.fr:mot", "u" + "@" + "societe.com:25", "mail bob" + "@" + "societe.com:merci"]) assert.deepEqual(motifs(ko), ["email"], ko);
+  for (const ok of ["redis://:<mot de passe>@h:6379", "postgres://u:***@h/db", "postgres://u:<secret>@h/db"]) assert.deepEqual(motifs(ok), [], ok);
+  assert.deepEqual(motifs("contact " + "a" + "@" + "exemple-reel.fr"), ["email"]);
+});
+test("verrou : le dépôt passe le verrou (formes génériques et liste personnelle du poste)", () => {
+  const maison = process.env.AGENT_WORKLOG_HOME || join(homedir(), ".agent-worklog");
+  const refus = verifierDepot(ROOT, { interdits: lireInterdits(maison) });
+  assert.deepEqual(refus.map((r) => `${r.chemin}:${r.ligne} ${r.motif.startsWith("interdit:") ? "interdit" : r.motif}`), []);
+});
+test("verrou : la racine est celle de git, et un crochet existant n'est pas écrasé", () => {
+  const dep = mkdtempSync(join(tmpdir(), "wl-verrou-racine-"));
+  const env = { ...process.env, AGENT_WORKLOG_HOME: mkdtempSync(join(tmpdir(), "wl-verrou-home-")) };
+  const git = (...a) => spawnSync("git", a, { cwd: dep, encoding: "utf8" });
+  git("init", "-q");
+  mkdirSync(join(dep, "sous"), { recursive: true });
+  writeFileSync(join(dep, "a.md"), "contact " + "a" + "@" + "exemple-reel.fr\n");
+  git("add", "a.md");
+  const verrou = join(ROOT, "scripts", "worklog", "verrou.mjs");
+  // Depuis un sous-dossier, tout le dépôt est lu (et non le seul dossier courant).
+  const r = spawnSync(process.execPath, [verrou], { cwd: join(dep, "sous"), encoding: "utf8", env });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /a\.md:1 email/);
+  // Un crochet étranger est gardé : refus net, contenu intact.
+  mkdirSync(join(dep, ".git", "hooks"), { recursive: true });
+  writeFileSync(join(dep, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho autre\n");
+  const inst = spawnSync(process.execPath, [verrou, "installer"], { cwd: dep, encoding: "utf8", env });
+  assert.equal(inst.status, 1);
+  assert.match(inst.stderr, /pre-commit/);
+  assert.equal(readFileSync(join(dep, ".git", "hooks", "pre-commit"), "utf8"), "#!/bin/sh\necho autre\n");
+});
+test("verrou : liste personnelle sans casse, hors du dépôt", () => {
+  const maison = mkdtempSync(join(tmpdir(), "wl-verrou-"));
+  writeFileSync(join(maison, "interdits.txt"), "# noms\nAcmeCorp\n\n");
+  const interdits = lireInterdits(maison);
+  assert.deepEqual(interdits, ["AcmeCorp"]);
+  const trouve = analyser("chez acmecorp.fr", { chemin: "a.md", interdits });
+  assert.deepEqual(trouve.map((r) => r.motif), ["interdit:#1"]);
+  assert.ok(!JSON.stringify(trouve).toLowerCase().includes("acme")); // le mot n'est jamais rapporté
+  assert.deepEqual(lireInterdits(join(maison, "absent")), []);
+});
+test("verrou : exceptions étroites (LICENSE, URL du dépôt)", () => {
+  assert.deepEqual(analyser("Copyright (c) 2026 Nom", { chemin: "LICENSE", interdits: ["Nom"] }), []);
+  assert.equal(analyser("Nom ailleurs", { chemin: "README.md", interdits: ["Nom"] }).length, 1);
+});
+test("verrou : un commit piégé est refusé par le crochet", () => {
+  const dep = mkdtempSync(join(tmpdir(), "wl-verrou-git-"));
+  const maison = mkdtempSync(join(tmpdir(), "wl-verrou-home-"));
+  const env = { ...process.env, AGENT_WORKLOG_HOME: maison };
+  const git = (...a) => spawnSync("git", a, { cwd: dep, encoding: "utf8", env });
+  git("init", "-q");
+  git("config", "user.name", "Test");
+  git("config", "user.email", "test@example.com");
+  mkdirSync(join(dep, "scripts", "worklog"), { recursive: true });
+  cpSync(join(ROOT, "scripts", "worklog", "verrou.mjs"), join(dep, "scripts", "worklog", "verrou.mjs"));
+  const inst = spawnSync(process.execPath, ["scripts/worklog/verrou.mjs", "installer"], { cwd: dep, encoding: "utf8", env });
+  assert.equal(inst.status, 0, inst.stderr);
+  writeFileSync(join(dep, "a.md"), "serveur " + ["10", "4", "5", "6"].join(".") + "\n");
+  git("add", "a.md");
+  const refus = git("commit", "-m", "piege");
+  assert.notEqual(refus.status, 0);
+  assert.match(refus.stderr, /verrou/);
+  writeFileSync(join(dep, "a.md"), "serveur local\n");
+  git("add", "a.md");
+  const ok = git("commit", "-m", "propre");
+  assert.equal(ok.status, 0, ok.stderr);
+  rmSync(dep, { recursive: true, force: true });
+});
+test("verrou : un secret ajouté puis retiré avant l'envoi est refusé au push", () => {
+  const dep = mkdtempSync(join(tmpdir(), "wl-verrou-push-"));
+  const distant = mkdtempSync(join(tmpdir(), "wl-verrou-bare-"));
+  const maison = mkdtempSync(join(tmpdir(), "wl-verrou-home-"));
+  const env = { ...process.env, AGENT_WORKLOG_HOME: maison };
+  const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8", env });
+  git(distant, "init", "-q", "--bare");
+  git(dep, "init", "-q");
+  git(dep, "config", "user.name", "Test");
+  git(dep, "config", "user.email", "test@example.com");
+  git(dep, "remote", "add", "origin", distant);
+  mkdirSync(join(dep, "scripts", "worklog"), { recursive: true });
+  cpSync(join(ROOT, "scripts", "worklog", "verrou.mjs"), join(dep, "scripts", "worklog", "verrou.mjs"));
+  assert.equal(spawnSync(process.execPath, ["scripts/worklog/verrou.mjs", "installer"], { cwd: dep, encoding: "utf8", env }).status, 0);
+  writeFileSync(join(dep, "a.md"), "serveur " + ["10", "4", "5", "6"].join(".") + "\n");
+  git(dep, "add", "a.md");
+  assert.equal(git(dep, "commit", "--no-verify", "-m", "A").status, 0);
+  writeFileSync(join(dep, "a.md"), "serveur local\n");
+  git(dep, "add", "a.md");
+  assert.equal(git(dep, "commit", "--no-verify", "-m", "B").status, 0);
+  const push = git(dep, "push", "origin", "HEAD:refs/heads/main");
+  assert.notEqual(push.status, 0);
+  assert.match(push.stderr, /verrou/);
+  assert.match(push.stderr, /ip/);
+  rmSync(dep, { recursive: true, force: true });
+  rmSync(distant, { recursive: true, force: true });
+});
+test("verrou : une erreur git refuse au lieu de laisser passer", () => {
+  const vide = mkdtempSync(join(tmpdir(), "wl-verrou-nogit-"));
+  const r = spawnSync(process.execPath, [join(ROOT, "scripts", "worklog", "verrou.mjs"), "--indexes"], { cwd: vide, encoding: "utf8", env: { ...process.env, AGENT_WORKLOG_HOME: mkdtempSync(join(tmpdir(), "wl-verrou-home-")), GIT_CEILING_DIRECTORIES: tmpdir() } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /vérification impossible/);
+  rmSync(vide, { recursive: true, force: true });
+});
+test("verrou : un secret introduit par un commit de fusion est refusé au push", () => {
+  const dep = mkdtempSync(join(tmpdir(), "wl-verrou-merge-"));
+  const distant = mkdtempSync(join(tmpdir(), "wl-verrou-bare-"));
+  const env = { ...process.env, AGENT_WORKLOG_HOME: mkdtempSync(join(tmpdir(), "wl-verrou-home-")) };
+  const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8", env });
+  git(distant, "init", "-q", "--bare");
+  git(dep, "init", "-q", "-b", "main");
+  git(dep, "config", "user.name", "Test");
+  git(dep, "config", "user.email", "test@example.com");
+  git(dep, "remote", "add", "origin", distant);
+  mkdirSync(join(dep, "scripts", "worklog"), { recursive: true });
+  cpSync(join(ROOT, "scripts", "worklog", "verrou.mjs"), join(dep, "scripts", "worklog", "verrou.mjs"));
+  assert.equal(spawnSync(process.execPath, ["scripts/worklog/verrou.mjs", "installer"], { cwd: dep, encoding: "utf8", env }).status, 0);
+  writeFileSync(join(dep, "a.md"), "a\n");
+  git(dep, "add", "a.md");
+  assert.equal(git(dep, "commit", "-m", "base").status, 0);
+  git(dep, "checkout", "-q", "-b", "cote");
+  writeFileSync(join(dep, "b.md"), "b\n");
+  git(dep, "add", "b.md");
+  assert.equal(git(dep, "commit", "-m", "cote").status, 0);
+  git(dep, "checkout", "-q", "main");
+  writeFileSync(join(dep, "c.md"), "c\n");
+  git(dep, "add", "c.md");
+  assert.equal(git(dep, "commit", "-m", "principal").status, 0);
+  git(dep, "merge", "--no-ff", "--no-commit", "cote");
+  writeFileSync(join(dep, "d.md"), "serveur " + ["10", "4", "5", "6"].join(".") + "\n");
+  git(dep, "add", "d.md");
+  assert.equal(git(dep, "commit", "--no-verify", "-m", "fusion").status, 0);
+  const push = git(dep, "push", "origin", "main");
+  assert.notEqual(push.status, 0);
+  assert.match(push.stderr, /d\.md/);
+  rmSync(dep, { recursive: true, force: true });
+  rmSync(distant, { recursive: true, force: true });
+});
+
+test("attente : ordre, jamais de jeton, conflits, verrou, copies", async () => {
+  const m = mkdtempSync(join(tmpdir(), "wl-att-"));
+  const p = { bff: "http://localhost:4180", projet: "demo" };
+  const a = enfiler(m, { ...p, session: "s1", op: "modifierTache", args: { id: "API-01", champs: { statut: "fait" } }, garde: { version: 3 } });
+  const b = enfiler(m, { ...p, session: "s1", op: "ajouterJournal", args: { texte: "x" }, garde: { version: 3 } });
+  assert.equal(b.enAttente, 2);
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), [a.uid, b.uid]);
+  assert.ok(!readdirSync(join(m, "attente"), { withFileTypes: true }).filter((e) => e.isFile()).some((e) => /jeton|Bearer/.test(readFileSync(join(m, "attente", e.name), "utf8"))));
+  mettreDeCote(m, a.uid, { raison: "conflit", conflits: [{ champ: "statut" }] });
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), [b.uid]);
+  assert.equal(conflitsEnAttente(m, p)[0].raison, "conflit");
+  abandonner(m, a.uid);
+  assert.equal(conflitsEnAttente(m, p).length, 0);
+  assert.deepEqual(objetsTouches("session", { statuts: { "API-01": "fait" }, suivis: { "API-02": "x" } }).sort(), ["API-01", "API-02"]);
+  const trace = [];
+  const tache = (n) => async () => { trace.push(`debut ${n}`); await new Promise((r) => setTimeout(r, 50)); trace.push(`fin ${n}`); return n; };
+  const [x, y] = await Promise.all([avecVerrou(m, tache("un")), avecVerrou(m, tache("deux"))]);
+  assert.deepEqual([x, y].sort(), ["deux", "un"]);
+  assert.match(trace.join(","), /^debut (un|deux),fin \1,debut (un|deux),fin \2$/); // jamais en même temps
+  // Verrou libéré après usage : un nouvel appel sans attente obtient le verrou.
+  assert.equal(await avecVerrou(m, async () => "x", { attendre: 0 }), "x");
+  assert.equal(await avecVerrou(m, async () => "y", { attendre: 0 }), "y");
+  garderCopie(m, p, { meta: { version: 7 }, chantiers: [], items: [] });
+  assert.equal(lireCopie(m, p).version, 7);
+  assert.deepEqual(lireCopie(m, p).data.meta, { version: 7 });
+  assert.equal(lireCopie(m, { ...p, projet: "autre" }), null);
+  rmSync(m, { recursive: true, force: true });
+});
+
+test("attente : verrou périmé repris, délai dépassé, verrou d'un autre jamais retiré", async () => {
+  const m = mkdtempSync(join(tmpdir(), "wl-ver-"));
+  mkdirSync(join(m, "attente"), { recursive: true });
+  const verrou = join(m, "attente", ".verrou");
+  // Détenu et récent : on attend, puis null.
+  writeFileSync(verrou, "autre");
+  const t0 = Date.now();
+  assert.equal(await avecVerrou(m, async () => "x", { attendre: 250 }), null);
+  assert.ok(Date.now() - t0 >= 200);
+  assert.equal(readFileSync(verrou, "utf8"), "autre");
+  // Périmé (plus de 120 s) : repris, et plusieurs candidats ne s'exécutent pas ensemble.
+  const vieux = new Date(Date.now() - 200000);
+  utimesSync(verrou, vieux, vieux);
+  const trace = [];
+  const tache = (n) => async () => { trace.push(`debut ${n}`); await new Promise((r) => setTimeout(r, 50)); trace.push(`fin ${n}`); return n; };
+  const rendus = await Promise.all([avecVerrou(m, tache("a")), avecVerrou(m, tache("b")), avecVerrou(m, tache("c"))]);
+  assert.deepEqual(rendus.sort(), ["a", "b", "c"]);
+  assert.match(trace.join(","), /^debut (.),fin \1,debut (.),fin \2,debut (.),fin \3$/);
+  assert.equal(existsSync(verrou), false);
+  assert.deepEqual(readdirSync(join(m, "attente")).filter((n) => n.includes("perime")), []); // rien ne traîne
+  // Reste d'un verrou emporté, périmé, laissé par un processus interrompu : nettoyé à la prise du verrou.
+  const reste = join(m, "attente", ".verrou.00000000-0000-0000-0000-000000000000.perime");
+  writeFileSync(reste, "jeton-oublie");
+  utimesSync(reste, vieux, vieux);
+  assert.equal(await avecVerrou(m, async () => "ok"), "ok");
+  assert.deepEqual(readdirSync(join(m, "attente")).filter((n) => n.includes("perime")), []);
+  // Rafraîchi pendant un long rejeu : un verrou de plus de 120 s n'est plus vu comme périmé.
+  await avecVerrou(m, async (rafraichir) => {
+    const t = new Date(Date.now() - 200000);
+    utimesSync(verrou, t, t);
+    assert.equal(await avecVerrou(m, async () => "pris", { attendre: 0 }), "pris"); // périmé : repris
+    writeFileSync(verrou, "x"); // le verrou repris est celui du second ; le nôtre n'existe plus
+    assert.equal(rafraichir(), false); // pas notre jeton : jamais touché
+  });
+  const jeton = "mon-jeton";
+  writeFileSync(verrou, jeton);
+  const vieux2 = new Date(Date.now() - 200000);
+  utimesSync(verrou, vieux2, vieux2);
+  assert.equal(rafraichirVerrou(m, "autre"), false);
+  assert.ok(Date.now() - statSync(verrou).mtimeMs > 120000);
+  assert.equal(rafraichirVerrou(m, jeton), true);
+  assert.ok(Date.now() - statSync(verrou).mtimeMs < 5000);
+  assert.equal(await avecVerrou(m, async () => "x", { attendre: 0 }), null); // frais : plus repris
+  rmSync(verrou, { force: true });
+  // Verrou remplacé pendant l'exécution : le détenteur d'origine ne supprime pas celui du nouveau.
+  await avecVerrou(m, async () => { writeFileSync(verrou, "nouveau-detenteur"); });
+  assert.equal(readFileSync(verrou, "utf8"), "nouveau-detenteur");
+  rmSync(m, { recursive: true, force: true });
+});
+
+test("attente : projets isolés, ordre entre sessions, fichier illisible signalé", () => {
+  const m = mkdtempSync(join(tmpdir(), "wl-iso-"));
+  const p = { bff: "http://localhost:4180", projet: "demo" };
+  const autreBff = { bff: "http://localhost:4181", projet: "demo" };
+  const autreProjet = { bff: "http://localhost:4180", projet: "autre" };
+  const a = enfiler(m, { ...p, session: "s", op: "ajouterJournal", args: {}, garde: null });
+  enfiler(m, { ...autreBff, session: "s", op: "ajouterJournal", args: {}, garde: null });
+  enfiler(m, { ...autreProjet, session: "s", op: "ajouterJournal", args: {}, garde: null });
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), [a.uid]);
+  assert.equal(enAttente(m, autreBff).length, 1);
+  assert.equal(enAttente(m, autreProjet).length, 1);
+  mettreDeCote(m, a.uid, { raison: "r" });
+  assert.equal(conflitsEnAttente(m, autreBff).length, 0);
+  assert.equal(conflitsEnAttente(m, autreProjet).length, 0);
+  assert.equal(conflitsEnAttente(m, p).length, 1);
+  // Un fichier laissé par une autre session (rang plus avancé) : le suivant passe après lui.
+  const avance = `${Date.now() + 100000}-0007-${"a".repeat(32)}.json`;
+  writeFileSync(join(m, "attente", avance), JSON.stringify({ uid: "a".repeat(32), ...p, op: "ajouterJournal", args: {}, garde: null }));
+  const b = enfiler(m, { ...p, session: "s", op: "ajouterJournal", args: {}, garde: null });
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), ["a".repeat(32), b.uid]);
+  // Fichier illisible : écarté dans conflits/ avec son texte, jamais perdu.
+  writeFileSync(join(m, "attente", `1-0000-${"b".repeat(32)}.json`), "{pas du json");
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), ["a".repeat(32), b.uid]);
+  const ill = conflitsEnAttente(m, p).find((c) => c.illisible);
+  assert.equal(ill.raison, "fichier illisible");
+  assert.equal(ill.brut, "{pas du json");
+  assert.equal(existsSync(join(m, "attente", `1-0000-${"b".repeat(32)}.json`)), false);
+  // Du JSON valide qui n'est pas une opération est aussi écarté ; abandonner() retrouve ces fichiers.
+  writeFileSync(join(m, "attente", `2-0000-${"c".repeat(32)}.json`), "[]");
+  writeFileSync(join(m, "attente", `3-0000-${"d".repeat(32)}.json`), JSON.stringify({ x: 1 }));
+  writeFileSync(join(m, "attente", `4-0000-${"e".repeat(32)}.json`), JSON.stringify("texte"));
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), ["a".repeat(32), b.uid]);
+  const illisibles = conflitsEnAttente(m, p).filter((c) => c.illisible);
+  // Un objet marqué illisible mais qui n'est pas une opération, déposé dans l'attente, est écarté lui aussi.
+  writeFileSync(join(m, "attente", `5-0000-${"f".repeat(32)}.json`), JSON.stringify({ illisible: true }));
+  assert.deepEqual(enAttente(m, p).map((o) => o.uid), ["a".repeat(32), b.uid]);
+  assert.equal(existsSync(join(m, "attente", `5-0000-${"f".repeat(32)}.json`)), false);
+  assert.equal(illisibles.length, 4);
+  for (const c of conflitsEnAttente(m, p).filter((x) => x.illisible)) abandonner(m, c.uid);
+  assert.equal(conflitsEnAttente(m, p).filter((c) => c.illisible).length, 0);
+  rmSync(m, { recursive: true, force: true });
+});

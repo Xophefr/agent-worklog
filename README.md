@@ -40,6 +40,7 @@ L'agent lit la ligne du chantier, sa spec et ses tâches ouvertes, ouvre une lig
 - [Relevé du code](#relevé-du-code)
 - [Réglage](#réglage)
 - [Sécurité](#sécurité)
+- [Verrou du dépôt public](#verrou-du-dépôt-public)
 - [Structure du dépôt](#structure-du-dépôt)
 - [Licence](#licence)
 
@@ -230,6 +231,7 @@ Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d
 | `npm run bff` | (dans ce dépôt) sert le BFF du mode base sur `http://localhost:4180/` ; `-- jeton interface` ou `-- jeton <projet>` crée un jeton |
 | `npm run code:stats` | ajoute le relevé du jour à l'onglet « Code » (`-- --check` : affiche seulement) |
 | `npm run agents:sync` | régénère le bloc `AGENTS.md` depuis le skill Claude Code (dans ce dépôt) |
+| `npm run verrou` | (dans ce dépôt) cherche clés, IP, chemins et mots interdits dans les fichiers suivis |
 | `npm test` | tests de l'outil |
 
 `--statut`, `--suivi`, `--chantier` et `--lot` sont répétables dans une même commande. Statuts : `a_faire`, `en_cours`, `a_verifier`, `fait`, `abandonne`. Toutes les commandes acceptent `--root <dossier>` ; sinon la racine du projet est le premier dossier parent qui contient `tracker.config.json`.
@@ -296,7 +298,7 @@ navigateur ──> accueil local ───┘     (jetons, historique)
 1. Dans ce dépôt : `npm install` (pilotes `pg` et `mysql2`, pour le BFF seulement).
 2. Une base vide et son adresse dans `~/.agent-worklog/bff.json` (hors de tout dépôt) :
    ```json
-   { "base": "postgres://worklog:motdepasse@localhost:5432/worklog", "port": 4180 }
+   { "base": "postgres://worklog:<mot de passe>@localhost:5432/worklog", "port": 4180 }
    ```
    ou `mysql://…` / `mariadb://…`. `WORKLOG_BASE_URL` prime. Le BFF crée et fait évoluer ses tables (`wl_*`) lui-même.
 3. `npm run bff`. Il n'écoute que sur `127.0.0.1` ; sur un serveur, on le joint par un tunnel SSH.
@@ -311,6 +313,21 @@ Un jeton n'est envoyé qu'au BFF qui l'a émis : une adresse changée dans `trac
 - **L'interface** : une fiche se lit, « Modifier » la passe en formulaire (« Enregistrer » / « Annuler ») ; un champ changé entre-temps par quelqu'un d'autre est signalé sans perdre votre saisie. Onglet « Historique » dans chaque fiche, onglet « Journal », boutons « + Nouveau chantier » et « + Nouvelle tâche », clôture d'un chantier.
 - **Les `.md` du dépôt** : dans les réglages du projet (roue dentée), *garder* (gelés : une ligne en tête dit que le suivi vit dans la base) ou *retirer* (la commande du projet les supprime à son passage suivant). **Générer les `.md`** : « Télécharger en Markdown » (CHANTIERS.md, backlog, et `chantiers.json` avec statuts et priorités), ou `npm run chantiers -- --exporter` (`docs/export-<date>/`, ou en place avec `--remplacer`). Relu par le mode fichiers, l'export redonne les mêmes chantiers et tâches.
 - **Les specs** restent des fichiers du dépôt, versionnés avec le code.
+- **Côté API**, une écriture (`POST /api/p/<id>/operation`) accepte `uid` (rejouée, elle ne s'applique qu'une fois ; réponse `deja: true`) et `garde` (`{version}` ou `{depuis}`) ; si la fiche a changé entre-temps, réponse 409 avec `conflits`. Sans ces deux champs, le comportement est celui de 2.0.0.
+
+### Hors ligne
+
+Quand le BFF est injoignable (tunnel coupé, serveur arrêté), une session ne perd rien.
+
+- **Une écriture est mise en attente**, sur le poste, avec un identifiant unique (`uid`). La commande se termine par le **code 75** et affiche « EN ATTENTE … PAS encore en base » : 75 veut dire *en attente, pas encore en base*, pas « fait ». Ne pas annoncer la tâche comme enregistrée.
+- **Le rejeu** a lieu avant chaque commande suivante, dans l'ordre. Un envoi répété n'écrit jamais deux fois (le BFF reconnaît l'`uid` et répond `deja`).
+- **Un conflit** (la fiche a changé entre-temps : le BFF compare la version ou la date vue par la session, champ `garde`) n'écrase rien : l'écriture est mise de côté (la commande sort avec le **code 1** et affiche la ligne `CONFLIT …`). On tranche avec `attente` (liste), `attente appliquer <uid> --session <nom>` (on garde ma valeur) ou `attente abandonner <uid>`.
+- **Créer hors ligne** demande `--id` (le serveur ne peut pas donner l'identifiant). Sans lui, la commande sort avec le **code 2** et rien n'est parti. Si la réponse n'est pas revenue (délai dépassé ou connexion coupée), la création a peut-être déjà passé : son id est donné au rejeu, ou se retrouve avec `taches`.
+- **Une lecture hors ligne** (`voir`, `taches`, ou toute commande sans écriture) sort avec le **code 75** : elle est servie depuis la dernière copie, signalée « copie du … — serveur injoignable ». Ce n'est pas un échec d'écriture, mais les données peuvent être anciennes.
+- **Un refus** (401, 403, 404, 408, 429 ou 5xx) arrête le rejeu et garde la file ; la ligne `N en attente (raison)` le dit.
+- **L'interface** affiche le bandeau « Serveur injoignable — lecture seule » sur la dernière copie, désactive les boutons d'écriture et revient seule à l'état normal (environ 30 secondes) quand le serveur répond.
+
+Pour que l'interface signe vos modifications, réglez votre nom une fois : `node scripts/worklog/accueil.mjs auteur "Camille Exemple"`.
 
 ### Deux façons de le servir
 
@@ -405,6 +422,14 @@ Ne l'exposez pas sur un réseau. Avec Apache, vérifiez que le serveur ne sert p
 
 ---
 
+## Verrou du dépôt public
+
+Ce dépôt est public : rien de personnel ne doit y entrer. `npm run verrou` examine tous les fichiers suivis et refuse les clés et jetons, les mots de passe dans une adresse de connexion, les adresses IP réelles, les chemins de votre poste, les emails et les mots de **votre liste personnelle**, écrite hors du dépôt dans `~/.agent-worklog/interdits.txt` (un mot par ligne). `npm test` le lance aussi sur tout le dépôt.
+
+`node scripts/worklog/verrou.mjs installer` pose les crochets `pre-commit` (fichiers indexés, `--indexes`) et `pre-push` (ce qui part, `--push`). Un refus affiche le fichier et la ligne, valeur masquée : corrigez, ne contournez pas (jamais `--no-verify`). Les IP de documentation (`127.0.0.1`, `192.0.2.x`…) sont admises ; en exemple, utilisez des noms neutres.
+
+---
+
 ## Structure du dépôt
 
 ```
@@ -427,6 +452,8 @@ agent-worklog/
 │   ├── client.mjs                commande d'un projet en mode base (HTTP vers le BFF)
 │   ├── operations.mjs            opérations du mode base (créer, modifier, clore, journal, lots)
 │   ├── export-md.mjs             export Markdown d'un projet en base
+│   ├── attente.mjs               file d'attente des écritures hors ligne (copiée dans le projet)
+│   ├── verrou.mjs                npm run verrou (garde du dépôt public, jamais copié dans un projet)
 │   ├── patch.mjs                 enregistrement du tableau (verrou par champ)
 │   ├── code-stats.mjs            npm run code:stats
 │   ├── config.mjs                lecture de tracker.config.json

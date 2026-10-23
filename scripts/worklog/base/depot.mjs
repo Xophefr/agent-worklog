@@ -5,10 +5,12 @@
 // applySession…) sur une copie ; comparaison avant/après champ par champ ; écriture des seuls
 // objets changés ; une ligne d'historique par champ changé, dans la même transaction. Deux
 // écritures sur un même projet passent donc l'une après l'autre, et aucune n'échappe à l'historique.
+// Options : `uid` (une opération déjà appliquée n'écrit rien : réponse `deja`) et `garde`
+// ({ version } ou { depuis } : refus 409 si un autre auteur a modifié le même champ entre-temps).
 import { createHash, randomBytes } from "node:crypto";
 
 export class ErreurDepot extends Error {
-  constructor(code, message) { super(message); this.code = code; }
+  constructor(code, message, details) { super(message); this.code = code; if (details) this.details = details; }
 }
 
 const json = (v) => JSON.stringify(v ?? null);
@@ -37,9 +39,46 @@ async function charger(q, projetId) {
   };
 }
 
+const versionDe = async (q, projetId) => Number((await q("SELECT MAX(n) AS n FROM wl_historique WHERE projet_id = ?", [projetId]))[0]?.n) || 0;
+
+/**
+ * Garde de conflit : pour chaque changement, la dernière ligne d'historique du même objet et du
+ * même champ (ou de l'objet entier) écrite après `garde.version` (ou, à défaut, après
+ * `garde.depuis`) par un autre auteur que cette session. Lue AVANT les lignes de cette écriture.
+ */
+async function conflitsDe(q, projetId, auteur, changements, garde) {
+  const parVersion = garde.version != null;
+  let borne;
+  if (parVersion) {
+    borne = Number(garde.version);
+    if (!Number.isInteger(borne) || borne < 0) throw new ErreurDepot(400, "garde.version : entier attendu");
+  } else {
+    const t = Date.parse(String(garde.depuis));
+    if (Number.isNaN(t)) throw new ErreurDepot(400, "garde.depuis : date ISO attendue");
+    // Tronquée à la seconde, comme le client : une modification faite dans la seconde même de la garde
+    // (`quand` > borne) ne compte pas comme postérieure.
+    borne = new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+  const conflits = [];
+  for (const c of changements) {
+    // Une création ou un retrait (champ « * ») heurte toute modification de l'objet.
+    const champ = c.champ === "*" ? "" : " AND champ IN (?, '*')";
+    const r = (await q(`SELECT auteur, quand FROM wl_historique WHERE projet_id = ? AND objet = ? AND objet_id = ?${champ} AND NOT (type_auteur = 'session' AND auteur = ?) AND ${parVersion ? "n" : "quand"} > ? ORDER BY n DESC LIMIT 1`,
+      [projetId, c.objet, c.objet_id, ...(c.champ === "*" ? [] : [c.champ]), auteur.type === "session" ? auteur.nom : "", borne]))[0];
+    if (r) conflits.push({ objet: c.objet, objet_id: c.objet_id, champ: c.champ, voulu: c.apres, enBase: c.avant, auteur: r.auteur, quand: r.quand });
+  }
+  return conflits;
+}
+
 /** Le corps d'une écriture, dans une transaction déjà ouverte (`q` = sa requête). */
-async function ecrireDans(q, projetId, auteur, fn) {
+async function ecrireDans(q, projetId, auteur, fn, { uid, garde } = {}) {
   if (!(await q("SELECT id FROM wl_projets WHERE id = ? FOR UPDATE", [projetId])).length) throw new ErreurDepot(404, `projet inconnu : ${projetId}`);
+  // Opération déjà appliquée (rejeu d'une file d'attente) : rien n'est écrit une seconde fois.
+  if (uid != null) {
+    const vu = (await q("SELECT projet_id FROM wl_operations WHERE uid = ?", [uid]))[0];
+    if (vu && vu.projet_id !== projetId) throw new ErreurDepot(400, `uid déjà employé pour un autre projet : ${uid}`);
+    if (vu) return { deja: true, resultat: null, version: await versionDe(q, projetId), changements: [] };
+  }
   const avant = await charger(q, projetId);
   const apres = structuredClone(avant);
   const resultat = await fn(apres);
@@ -98,6 +137,11 @@ async function ecrireDans(q, projetId, auteur, fn) {
     noter("code", projetId, "stats", null, "relevé reçu");
   }
 
+  if (garde && (garde.version != null || garde.depuis != null)) {
+    const conflits = await conflitsDe(q, projetId, auteur, changements, garde);
+    if (conflits.length) throw new ErreurDepot(409, "conflit : modifié entre-temps", { conflits });
+  }
+
   // Historique : l'auteur précédent de chaque champ (pour dire à une session ce qu'elle remplace), puis la ligne.
   const quand = maintenant();
   for (const c of changements) {
@@ -108,8 +152,8 @@ async function ecrireDans(q, projetId, auteur, fn) {
     await q("INSERT INTO wl_historique (projet_id, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [projetId, c.objet, c.objet_id, c.champ, enTexte(c.avant), enTexte(c.apres), auteur.nom, auteur.type, quand]);
   }
-  const v = (await q("SELECT MAX(n) AS n FROM wl_historique WHERE projet_id = ?", [projetId]))[0];
-  return { resultat, version: Number(v && v.n) || 0, changements };
+  if (uid != null) await q("INSERT INTO wl_operations (uid, projet_id, quand) VALUES (?, ?, ?)", [uid, projetId, quand]);
+  return { resultat, version: await versionDe(q, projetId), changements };
 }
 
 const ajoutProjet = async (q, { id, nom, ui = {}, reglages = {}, textes = {} }, auteur) => {
@@ -146,7 +190,7 @@ export async function importer(depot, { id, nom, ui = {}, data, journal = { cons
 
 export function creerDepot(base) {
   const q0 = base.requete;
-  const ecrire = (projetId, auteur, fn) => base.transaction((tx) => ecrireDans(tx.requete, projetId, auteur, fn));
+  const ecrire = (projetId, auteur, fn, opts = {}) => base.transaction((tx) => ecrireDans(tx.requete, projetId, auteur, fn, opts));
 
   return {
     base,

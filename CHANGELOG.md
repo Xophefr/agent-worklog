@@ -6,6 +6,25 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 2.1.0 · 2026-10-23
+
+### Ajouté
+
+- **Verrou du dépôt public** (`npm run verrou`) : refuse clés, jetons, mots de passe de connexion, IP réelles, chemins du poste, emails et mots d'une liste personnelle gardée hors du dépôt. Crochets `pre-commit` et `pre-push` (`verrou.mjs installer`) ; il passe aussi sur tout le dépôt dans `npm test`.
+- **File d'attente des sessions** (mode base) : BFF injoignable, l'écriture est gardée sur le poste (code de sortie 75, « EN ATTENTE … PAS encore en base »), rejouée dans l'ordre avant la commande suivante, sans double envoi. Un conflit est mis de côté (`CONFLIT …`) et se tranche avec `attente`, `attente appliquer <uid>`, `attente abandonner <uid>`. Créer hors ligne demande `--id`.
+- **Lecture hors ligne** : la dernière copie est montrée, datée, avec « serveur injoignable ».
+- **Interface hors ligne** : bandeau « Serveur injoignable — lecture seule » sur la dernière copie, retour automatique en environ 30 secondes.
+- **API du BFF** : `uid` (écriture idempotente, réponse `deja`) et `garde` (`version` ou `depuis`, réponse 409 avec `conflits`) sur `POST /api/p/<id>/operation`.
+
+### Modifié
+
+- Un refus 401, 403, 404, 408, 429 ou 5xx arrête le rejeu et garde la file, avec la ligne « N en attente (raison) ».
+- `attente.mjs` est copié dans les projets (le client l'importe) ; `verrou.mjs` reste dans ce dépôt.
+
+### À faire dans un projet
+
+Relancer l'installation pour recevoir `attente.mjs` et le client à jour. Le mode fichiers ne change pas.
+
 ## 2.0.0 · 2026-10-23
 
 ### Ajouté

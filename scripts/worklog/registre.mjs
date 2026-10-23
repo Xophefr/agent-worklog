@@ -28,7 +28,7 @@ export function saveRegistry(file, reg) {
   writeFileSync(file, JSON.stringify(reg, null, 2) + "\n", "utf8");
 }
 
-/** « Réplycite Pro » -> « replycite-pro ». */
+/** « Équipe Pro » -> « equipe-pro ». */
 export function slugId(nom) {
   return String(nom).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");

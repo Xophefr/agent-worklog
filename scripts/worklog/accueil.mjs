@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
 import { installInto } from "./install.mjs";
 import { fail, isLocalHost, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
+import { garderCopie, lireCopie } from "./attente.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 import { summarize } from "./resume.mjs";
 
@@ -114,9 +115,9 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     try {
       // Un BFF qui ne répond pas donne une carte d'erreur à temps, sans figer les autres cartes.
       return await fetch(origine + chemin, { method, body, signal: AbortSignal.timeout(Number(process.env.WORKLOG_DELAI_BFF) || 15000), headers: { Authorization: `Bearer ${jeton}`, "X-Worklog-Auteur": encodeURIComponent(auteur()), "Content-Type": "application/json" } });
-    } catch { throw new Error(`BFF injoignable (${origine})`); }
+    } catch { throw Object.assign(new Error("serveur injoignable"), { injoignable: true }); }
   }
-  async function relayer(req, res, b, chemin, apres) {
+  async function relayer(req, res, b, chemin, apres, horsLigne) {
     let corps;
     if (req.method === "POST") {
       const refus = writeGuard(req);
@@ -124,7 +125,10 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       try { corps = await readBody(req); } catch (e) { return fail(res, e.code === 413 ? 413 : 400, e.message); }
     } else if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "méthode non admise");
     let r;
-    try { r = await bffAppel(b, chemin, { method: req.method === "POST" ? "POST" : "GET", body: corps }); } catch (e) { return fail(res, 502, e.message); }
+    try { r = await bffAppel(b, chemin, { method: req.method === "POST" ? "POST" : "GET", body: corps }); } catch (e) {
+      if (e.injoignable && horsLigne && horsLigne()) return;
+      return fail(res, 502, e.message);
+    }
     const buf = Buffer.from(await r.arrayBuffer());
     if (apres && r.ok) return apres(JSON.parse(buf.toString("utf8")));
     return send(res, r.status, buf, r.headers.get("content-type") || "application/json; charset=utf-8");
@@ -215,7 +219,23 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       const P = encodeURIComponent(o.base.projet);
       const q = new URL(req.url, "http://localhost").search;
       if ((rest === "" || UI.has(rest)) && req.method !== "POST") return serveFile(req, res, uiDir, rest || "index.html");
-      if (rest === "chantiers.json") return relayer(req, res, o.base, `/p/${P}/chantiers.json`, (d) => send(res, 200, JSON.stringify(completer(d, reg, o))));
+      if (rest === "chantiers.json") {
+        const cible = { bff: o.base.bff, projet: o.base.projet };
+        // Succès : la réponse brute du BFF est gardée (avant completer) pour les coupures. BFF injoignable : dernière copie.
+        const apres = (d) => {
+          try { garderCopie(maison, cible, d); } catch { /* copie impossible : la réponse part quand même */ }
+          return send(res, 200, JSON.stringify(completer(d, reg, o)));
+        };
+        const horsLigne = () => {
+          const copie = lireCopie(maison, cible);
+          if (!copie?.data || typeof copie.data !== "object") return false;
+          const d = completer(copie.data, reg, o);
+          d.meta.horsLigne = { depuis: copie.quand };
+          send(res, 200, JSON.stringify(d));
+          return true;
+        };
+        return relayer(req, res, o.base, `/p/${P}/chantiers.json`, apres, horsLigne);
+      }
       if (rest === "code_stats.json" || rest === "save.php") return relayer(req, res, o.base, `/p/${P}/${rest}`);
       const api = /^api\/(operation|historique|spec|export)$/.exec(rest);
       if (api) return relayer(req, res, o.base, `/api/p/${P}/${api[1]}${q}`);
@@ -288,7 +308,7 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     return fail(res, 404, "introuvable");
   }
 
-  return createServer((req, res) => { route(req, res).catch((e) => { if (!res.headersSent) fail(res, 500, e.message); }); });
+  return createServer((req, res) => { route(req, res).catch((e) => { if (res.headersSent) console.error(`accueil : ${e.message}`); else fail(res, 500, e.message); }); });
 }
 
 function main(argv) {

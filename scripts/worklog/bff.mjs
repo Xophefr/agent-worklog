@@ -123,10 +123,13 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
         if (c.op === "reglages" && acces.type !== "interface") return fail(res, 403, "réglages réservés à l'interface");
         const session = String(c.session || "").trim();
         if (acces.type === "session" && !session) return fail(res, 400, "--session attendu : chaque écriture nomme sa session");
+        // uid : identifiant d'opération rejouable sans double écriture ; garde : refus si modifié entre-temps.
+        if (c.uid !== undefined && !(typeof c.uid === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(c.uid))) return fail(res, 400, "uid invalide (8 à 64 caractères parmi A-Z a-z 0-9 _ -)");
+        if (c.garde !== undefined && (typeof c.garde !== "object" || c.garde === null || Array.isArray(c.garde))) return fail(res, 400, "garde invalide (objet { version } ou { depuis } attendu)");
         // Une règle métier refusée par l'opération est une erreur de la demande (400), pas du serveur.
         const r = await depot.ecrire(projet, auteurDe(acces, session), (d) => {
           try { return f(d, c.args || {}, session || acces.nom); } catch (e) { throw new ErreurDepot(400, e.message); }
-        });
+        }, { uid: c.uid, garde: c.garde });
         return send(res, 200, { ok: true, ...r });
       }
       if (quoi === "historique") return send(res, 200, { ok: true, lignes: await depot.historique(projet, u.searchParams.get("objet"), u.searchParams.get("id")) });
@@ -160,7 +163,7 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
   return createServer((req, res) => {
     route(req, res).catch((e) => {
       if (res.headersSent) return;
-      return fail(res, e instanceof ErreurDepot ? e.code : 500, e.message);
+      return fail(res, e instanceof ErreurDepot ? e.code : 500, e.message, e instanceof ErreurDepot ? e.details : undefined);
     });
   });
 }

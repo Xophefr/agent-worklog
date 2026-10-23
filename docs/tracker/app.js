@@ -334,6 +334,7 @@
     if (view === 'journal' && !BASE()) view = 'prio';
     const v = { prio: renderPrio, board: renderBoard, items: renderItems, done: renderDone, code: renderCode, journal: renderJournal }[view] || renderPrio;
     $('#view').innerHTML = v();
+    appliquerHorsLigne();
   }
 
   // ---------- panneau (boite de dialogue modale) ----------
@@ -344,6 +345,7 @@
     $('#drId').textContent = id;
     $('#drTitle').textContent = title;
     $('#drBody').innerHTML = html;
+    appliquerHorsLigne();
     $('#drawer').classList.add('open');
     $('#drawer').removeAttribute('aria-hidden');
     OUTSIDE.forEach((s) => { const n = $(s); if (n) n.inert = true; });
@@ -438,6 +440,40 @@
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.ok === false) throw new Error(j.error || 'HTTP ' + r.status);
     return j;
+  }
+  // Serveur injoignable : l'accueil sert la derniere copie lue (meta.horsLigne). Tout ce qui ecrit est desactive
+  // (vrais `disabled`, hors de l'ordre de Tab) ; filtres, recherche et navigation restent utilisables.
+  const HORS_LIGNE = () => !!(data && data.meta && data.meta.horsLigne);
+  const ECRIT = 'select[data-f], input[data-f], textarea[data-f], select[data-ch], input[data-ch], textarea[data-ch], [data-act-main], [data-move], '
+    + '[data-act="modifier"], [data-act="clore"], [data-act="nouvelle-tache"], [data-act="hist"], [data-act="spec"], [data-act="exporter"], '
+    + 'form[data-form] [type="submit"], #reglagesBtn';
+  let verifTimer = null;
+  function appliquerHorsLigne() {
+    const hl = HORS_LIGNE();
+    const bandeau = $('#horsLigne');
+    if (bandeau) {
+      const depuis = hl && new Date(data.meta.horsLigne.depuis);
+      bandeau.textContent = hl ? `Serveur injoignable — lecture seule (copie du ${isNaN(depuis) ? '?' : depuis.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })})` : '';
+    }
+    document.querySelectorAll(ECRIT).forEach((el) => {
+      if (hl) { if (!el.disabled) { el.disabled = true; el.dataset.hl = '1'; } }
+      else if (el.dataset.hl) { el.disabled = false; delete el.dataset.hl; }
+    });
+    document.querySelectorAll('[draggable]').forEach((el) => {
+      if (hl) { if (el.draggable) { el.draggable = false; el.dataset.hlDrag = '1'; } }
+      else if (el.dataset.hlDrag) { el.draggable = true; delete el.dataset.hlDrag; }
+    });
+    if (hl && !verifTimer) verifTimer = setInterval(verifierRetour, 30000);
+    if (!hl && verifTimer) { clearInterval(verifTimer); verifTimer = null; }
+  }
+  // Toutes les 30 s tant que hors ligne : a la premiere reponse sans horsLigne, on recharge et le bandeau disparait.
+  async function verifierRetour() {
+    try {
+      const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const fresh = await r.json();
+      if (fresh && fresh.meta && !fresh.meta.horsLigne) { await recharger(); setState('Serveur de nouveau joignable', 'ok'); }
+    } catch { /* toujours injoignable : on retentera */ }
   }
   const operation = (op, args) => api('api/operation', { op, args });
   async function recharger() {
@@ -736,7 +772,8 @@
       const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) return;
       const fresh = await r.json();
-      if (!fresh || !fresh.meta || fresh.meta.version === data.meta.version) return;
+      if (!fresh || !fresh.meta || HORS_LIGNE()) return;   // hors ligne : verifierRetour() s'en charge
+      if (fresh.meta.version === data.meta.version && !fresh.meta.horsLigne) return;
       data = fresh;
       snapshot();
       render();
