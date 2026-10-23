@@ -322,5 +322,40 @@ main code { overflow-wrap: anywhere; }
   /* Δ brut : l'historique sous le tableau donne déjà l'évolution. */
   .items.stats tr > :last-child { display: none; }
 }
+/* Accueil multi-projets (accueil.html) : une carte par projet, liseré à sa couleur. */
+.pill.a_verifier { color: var(--warn); background: var(--warn-bg); }
+.projets { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: 1rem; }
+.proj { position: relative; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-top: .25rem solid var(--proj, var(--accent)); border-radius: var(--radius); box-shadow: var(--shadow); transition: box-shadow .15s, border-color .15s; min-width: 0; }
+.proj:hover, .proj:focus-within { box-shadow: var(--shadow-up); }
+.proj-body { display: block; flex: 1; padding: 1rem 1.125rem .75rem; color: var(--text); text-decoration: none; border-radius: var(--radius) var(--radius) 0 0; }
+a.proj-body:hover h2 { text-decoration: underline; text-underline-offset: .15em; }
+.proj h2 { margin: 0 0 .5rem; font-size: 1.125rem; overflow-wrap: anywhere; }
+.proj-pct { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .625rem; }
+.proj-pct b { font: 600 2rem/1.1 var(--mono); letter-spacing: -.03em; }
+.proj-pct span, .proj-act, .proj-maj { color: var(--muted); font-size: .8125rem; }
+.proj .bar { margin: .625rem 0 .75rem; }
+.proj .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .375rem; }
+.proj-act { margin: .75rem 0 0; }
+.proj-maj { margin: .25rem 0 0; font-style: italic; }
+.proj-err { color: var(--p0); font-weight: 600; margin: 0 0 .25rem; }
+.proj.err { border-top-color: var(--p0); }
+.proj.err .mono { overflow-wrap: anywhere; font-size: .75rem; }
+.proj-x { align-self: flex-start; margin: 0 .75rem .625rem; min-height: 2.75rem; padding: 0 .5rem; border: 0; background: none; color: var(--muted); font-size: .8125rem; cursor: pointer; text-decoration: underline; text-underline-offset: .15em; }
+.proj-x:hover { color: var(--text); }
+.proj-confirm { margin: 0 1.125rem 1rem; padding-top: .75rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.proj-confirm p { flex: 1 1 100%; margin: 0; font-size: .875rem; }
+.btn { min-height: 2.75rem; padding: 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.danger { background: var(--block); border-color: var(--block); color: var(--surface); }
+.proj.add { border: 1px dashed var(--border); border-top-width: 1px; background: transparent; box-shadow: none; min-height: 12rem; }
+.proj.add > button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; border: 0; background: none; color: var(--muted); font-weight: 600; cursor: pointer; border-radius: var(--radius); min-height: 12rem; }
+.proj.add > button svg { width: 1.75rem; height: 1.75rem; }
+.proj.add > button:hover { color: var(--text); }
+.proj.add.open { background: var(--surface); border-style: solid; }
+.proj.add label { display: block; font-weight: 600; margin-bottom: .375rem; }
+.proj.add input { width: 100%; min-height: 2.75rem; padding: .375rem .625rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); font-family: var(--mono); font-size: .875rem; }
+.proj.add .muted { font-size: .8125rem; margin: .375rem 0 .5rem; }
+.row-btns { display: flex; gap: .5rem; flex-wrap: wrap; }
+
 html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

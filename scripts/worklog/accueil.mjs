@@ -54,7 +54,7 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     const projets = reg.projets.map((e) => {
       const o = ouvrir(e);
       const base = { id: e.id, type: e.type, dossier: e.dossier };
-      if (o.erreur) return { ...base, erreur: o.erreur };
+      if (o.erreur) return { ...base, nom: o.cfg ? o.cfg.projet : null, erreur: o.erreur };
       try {
         const r = summarize(lireJson(o.dataFile), { today: today(), version: versionDe(o.dossier), outil });
         // Nom et couleurs : le réglage du projet décide (chantiers.json peut dater d'avant un changement).
