@@ -33,10 +33,10 @@ const jourLocal = () => new Date().toLocaleDateString("en-CA");
 // Les opérations qu'une écriture peut demander : (données, args, session) -> résultat.
 const OPERATIONS = {
   creerChantier: (d, a) => creerChantier(d, a),
-  modifierChantier: (d, a) => modifierChantier(d, a.id, a.champs || {}),
+  modifierChantier: (d, a) => modifierChantier(d, a.id, a.champs || {}, a.base),
   cloreChantier: (d, a) => cloreChantier(d, a.id, { ...a, le: a.le || jourLocal() }),
   creerTache: (d, a) => creerTache(d, a),
-  modifierTache: (d, a) => modifierTache(d, a.id, a.champs || {}),
+  modifierTache: (d, a) => modifierTache(d, a.id, a.champs || {}, a.base),
   ajouterJournal: (d, a, s) => ajouterJournal(d, { date: jourLocal(), session: s, ...a }),
   session: (d, a, s) => applySession(d, a, s, a.jour || jourLocal()),
   reglages: (d, a) => { d.reglages = { ...d.reglages, ...a }; },

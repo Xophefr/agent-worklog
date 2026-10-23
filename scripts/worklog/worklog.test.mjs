@@ -858,3 +858,18 @@ for (const [nom, url] of BASES) {
     assert.equal(liste.projets.find((p) => p.id === "alpha").resume.nom, "Alpha");
   });
 }
+
+test("opérations : verrou par champ d'un formulaire (valeur de départ)", () => {
+  const d = build();
+  const ok = modifierTache(d, "API-01", { attendu: "200", note: "a" }, { attendu: d.items[0].attendu, note: "" });
+  assert.deepEqual(ok.conflits, []);
+  // Quelqu'un change la note entre-temps ; le formulaire ouvert avant enregistre note ET priorité.
+  modifierTache(d, "API-01", { note: "b" });
+  const r = modifierTache(d, "API-01", { note: "mienne", priorite: "P0" }, { note: "a", priorite: "P1" });
+  assert.deepEqual(r.conflits, [{ champ: "note", valeur: "b" }]);
+  const t = d.items.find((i) => i.id === "API-01");
+  assert.deepEqual([t.note, t.priorite], ["b", "P0"]);
+  const c = modifierChantier(d, "CH-01", { titre: "Nouveau" }, { titre: "Autre chose" });
+  assert.deepEqual(c.conflits.map((x) => x.champ), ["titre"]);
+  assert.equal(d.chantiers.find((x) => x.id === "CH-01").titre, "API publique");
+});

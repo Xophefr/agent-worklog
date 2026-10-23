@@ -46,11 +46,29 @@ export function creerChantier(data, { id, titre, etat = "pas commencé", prochai
   return cid;
 }
 
-export function modifierChantier(data, id, champs) {
+/**
+ * Verrou d'un formulaire : `base` porte la valeur de chaque champ quand le formulaire a été ouvert.
+ * Un champ changé entre-temps par quelqu'un d'autre n'est pas écrasé : il est rendu dans `conflits`
+ * (avec sa valeur actuelle) et retiré de `champs` ; les autres champs s'appliquent.
+ */
+function verrou(objet, champs, base) {
+  const conflits = [];
+  if (!base) return conflits;
+  for (const k of Object.keys(champs)) {
+    if (!(k in base)) continue;
+    if (JSON.stringify(objet[k] ?? "") !== JSON.stringify(base[k] ?? "")) { conflits.push({ champ: k, valeur: objet[k] ?? null }); delete champs[k]; }
+  }
+  return conflits;
+}
+
+export function modifierChantier(data, id, champs, base) {
   verifier(champs, CHAMPS_CHANTIER, "un chantier");
   const c = chantier(data, id);
-  Object.assign(c, champs);
-  if ("etat" in champs) c.colonne = etatColonne(champs.etat);
+  const libres = { ...champs };
+  const conflits = verrou(c, libres, base);
+  Object.assign(c, libres);
+  if ("etat" in libres) c.colonne = etatColonne(libres.etat);
+  return { conflits };
 }
 
 /** Clôture (ou abandon) : le chantier passe dans « Terminés & clos » avec sa preuve. */
@@ -79,13 +97,16 @@ export function creerTache(data, { id, chantier: cid, titre, constat = "", atten
   return tid;
 }
 
-export function modifierTache(data, id, champs) {
+export function modifierTache(data, id, champs, base) {
   verifier(champs, CHAMPS_TACHE, "une tâche");
   const t = tache(data, id);
   if (champs.chantier) chantier(data, champs.chantier);
-  Object.assign(t, champs);
-  if ("decision" in champs) t.decision = Boolean(champs.decision);
-  if ("chantier" in champs) { t.chantier = champs.chantier || null; if (!("lot" in champs)) t.lot = null; }
+  const libres = { ...champs };
+  const conflits = verrou(t, libres, base);
+  Object.assign(t, libres);
+  if ("decision" in libres) t.decision = Boolean(libres.decision);
+  if ("chantier" in libres) { t.chantier = libres.chantier || null; if (!("lot" in libres)) t.lot = null; }
+  return { conflits };
 }
 
 export function ajouterJournal(data, { date, session, chantiers = "", texte, commits = "—", docs = "—" } = {}) {
