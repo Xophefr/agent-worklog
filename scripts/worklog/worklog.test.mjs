@@ -490,6 +490,11 @@ test("export Markdown : relu par le mode fichiers sans perte", () => {
   cloreChantier(d, "CH-02", { preuve: "—", reste: "—", le: "2026-10-23", abandon: true });
   creerTache(d, { chantier: "CH-01", titre: "Barre | dans le titre", constat: "ligne 1\nligne 2", attendu: "a | b", decision: true });
   creerTache(d, { titre: "Orpheline", domaine: "DOC" });
+  // Titre tiré du début de la cellule, qui contient déjà du gras (backlog réel).
+  const cel = "Grille du 5 octobre (note §10). **Plans en base** : migration";
+  creerTache(d, { chantier: "CH-01", titre: cel, constat: cel, id: "API-09" });
+  // Marque de décision écrite dans l'attendu (backlog réel de FXMe) : le titre n'en reçoit pas une seconde.
+  creerTache(d, { chantier: "CH-01", titre: "Lien manquant", constat: "Lien manquant", attendu: "à trancher DÉCISION", decision: true, id: "API-10" });
   ajouterJournal(d, { date: "2026-10-23", session: "s1", chantiers: "CH-01", texte: "OUVERT. a | b" });
   d.journal.consigne = "Ajout seul.";
   const md = exportMd(d);
@@ -502,7 +507,9 @@ test("export Markdown : relu par le mode fichiers sans perte", () => {
     assert.ok(r, t.id);
     assert.deepEqual([r.titre, r.chantier, r.priorite, r.decision], [t.titre, t.chantier, t.priorite, t.decision], t.id);
   }
-  assert.equal(relu.items.find((i) => i.id === "API-04").attendu, "a | b");
+  // Décision attendue sans marque dans le texte : la marque s'ajoute à l'attendu (c'est ainsi que le mode fichiers la lit).
+  assert.equal(relu.items.find((i) => i.id === "API-04").attendu, "a | b DÉCISION");
+  assert.equal(relu.items.find((i) => i.id === "API-10").attendu, "à trancher DÉCISION");
   const j = parseJournal(md.chantiers);
   assert.equal(j.consigne, "Ajout seul.");
   assert.equal(j.entrees[0].texte, "OUVERT. a | b");
@@ -674,6 +681,9 @@ for (const [nom, url] of BASES) {
     const ex = await (await appel("/api/p/a/export")).json();
     assert.match(ex.chantiers, /CH-01/);
     assert.match(ex.backlog, /API-01/);
+    // Statuts, priorités, rangs, notes, lots choisis vivent dans chantiers.json en mode fichiers : l'export le donne aussi.
+    assert.equal(ex.json.items.find((i) => i.id === "API-01").statut, "en_cours");
+    assert.equal(ex.json.meta.mode, undefined);
 
     const imp = await appel("/api/import", { corps: { id: "c", nom: "Gamma", data: build(), journal: { consigne: "", entrees: [] }, textes: {}, specs: [] } });
     assert.equal(imp.status, 200);
@@ -765,6 +775,7 @@ for (const [nom, url] of BASES) {
     assert.equal(r.code, 0, r.out);
     const exp = readdirSync(join(dir, "docs")).find((n) => n.startsWith("export-"));
     assert.match(readFileSync(join(dir, "docs", exp, "backlog.md"), "utf8"), /API-04/);
+    assert.equal(JSON.parse(readFileSync(join(dir, "docs", exp, "chantiers.json"), "utf8")).items.find((i) => i.id === "API-04").priorite, "P0");
 
     // Review Focus 3 : BFF injoignable -> code 1, message clair, rien d'écrit en local.
     const avant = readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8");
@@ -873,3 +884,24 @@ test("opérations : verrou par champ d'un formulaire (valeur de départ)", () =>
   assert.deepEqual(c.conflits.map((x) => x.champ), ["titre"]);
   assert.equal(d.chantiers.find((x) => x.id === "CH-01").titre, "API publique");
 });
+
+for (const [nom, url] of BASES) {
+  test(`BFF ${nom} : import d'un gros projet (plus de 2 Mo), réponse 413 au-delà de la limite`, async (t) => {
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker"), maxCorps: 8_000_000 }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => srv.close());
+    const ji = await depot.creerJeton(null, "interface");
+    const gros = build();
+    gros.items[0].constat = "x".repeat(3_000_000);
+    const post = (corps) => fetch(`http://localhost:${srv.address().port}/api/import`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}` }, body: JSON.stringify(corps) });
+    const r = await post({ id: "gros", nom: "Gros", data: gros });
+    assert.equal(r.status, 200, await r.clone().text());
+    gros.items[0].constat = "x".repeat(9_000_000);
+    const trop = await post({ id: "trop", nom: "Trop", data: gros });
+    assert.equal(trop.status, 413);
+    assert.match((await trop.json()).error, /trop grande/);
+  });
+}

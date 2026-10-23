@@ -1,6 +1,7 @@
 // Export Markdown d'un projet en mode base : CHANTIERS.md et backlog, au format que lit le mode
 // fichiers (parseChantiers, parseBacklog, parseJournal). Format canonique (tableaux) : la prose
 // libre des fichiers d'origine n'est pas reconstituée (l'import en garde une copie brute).
+import { marqueRe } from "./chantiers-tracker.mjs";
 
 // Une cellule : « | » échappé, retour à la ligne en <br> (convention du tableau), vide -> « — ».
 const cell = (v) => {
@@ -18,7 +19,9 @@ const parId = (a, b) => a.id.localeCompare(b.id, "fr", { numeric: true });
 export function exportMd(data) {
   const chantiers = data.chantiers || [];
   const items = data.items || [];
-  const marque = (data.meta && data.meta.ui && data.meta.ui.marque) || "DÉCISION";
+  const ui = (data.meta && data.meta.ui) || {};
+  const marque = ui.marque || "DÉCISION";
+  const reMarque = marqueRe(marque, Boolean(ui.marqueCasse));
 
   const ouverts = chantiers.filter((c) => !FERMES.has(c.colonne)).sort(ordre);
   // Un chantier « terminé » mais pas encore descendu reste dans les ouverts, comme en mode fichiers.
@@ -53,8 +56,14 @@ export function exportMd(data) {
 
   // Backlog : une section par chantier (ordre du registre), puis les tâches sans chantier.
   const tacheLigne = (t) => {
-    const texte = `**${t.titre}.**${t.constat && t.constat !== t.titre ? ` ${t.constat}` : ""}`;
-    return [t.id, t.priorite, t.decision && !texte.includes(marque) ? `${texte} ${marque}` : texte, t.attendu];
+    // Titre tiré du début de la cellule (pas de « **Titre.** » en tête) : la cellule est réécrite
+    // telle quelle, le mode fichiers en retire le même titre ; l'envelopper en gras le couperait.
+    const brut = t.constat && t.constat.startsWith(t.titre);
+    const texte = brut ? t.constat : `**${t.titre}.**${t.constat && t.constat !== t.titre ? ` ${t.constat}` : ""}`;
+    // La marque de décision vaut pour toute la ligne : déjà présente (texte ou attendu), rien à ajouter ;
+    // sinon elle va dans l'attendu, jamais dans la cellule dont le mode fichiers tire le titre.
+    const manque = t.decision && !reMarque.test(`${texte} ${t.attendu || ""}`);
+    return [t.id, t.priorite, texte, manque ? `${t.attendu ? `${t.attendu} ` : ""}${marque}` : t.attendu];
   };
   const section = (titre, list) => [`## ${titre}`, "", tableau(["id", "P", "tâche", "attendu"], list.sort(parId).map(tacheLigne)), ""];
   const parties = ["# Backlog", ""];

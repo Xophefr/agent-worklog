@@ -36,7 +36,7 @@ export function createTracker(root, cfg) {
       if (req.method !== "POST") return fail(res, 405, "POST attendu");
       const refus = writeGuard(req);
       if (refus) return fail(res, refus.code, refus.error);
-      readBody(req).then((raw) => { queue = queue.then(() => save(req, res, raw)).catch((e) => fail(res, 500, e.message)); }, () => {});
+      readBody(req).then((raw) => { queue = queue.then(() => save(req, res, raw)).catch((e) => fail(res, 500, e.message)); }, (e) => fail(res, e.code === 413 ? 413 : 400, e.message));
       return undefined;
     }
     if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "lecture seule");

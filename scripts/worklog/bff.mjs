@@ -53,7 +53,10 @@ function pourTableau(d) {
   return { ...reste, meta: { ...d.meta, specs: specs.map((s) => s.chemin), code: Boolean(code) } };
 }
 
-export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil = "" }) {
+// Un import porte tout un projet (données, textes bruts, specs) : bien plus que le patch d'un tableau.
+const MAX_CORPS = 64_000_000;
+
+export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil = "", maxCorps = MAX_CORPS }) {
   async function qui(req) {
     const m = /^Bearer\s+(.+)$/.exec(String(req.headers.authorization || ""));
     const j = m ? await depot.verifierJeton(m[1].trim()) : null;
@@ -68,7 +71,9 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
 
   async function corps(req) {
     if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) throw new ErreurDepot(415, "JSON attendu");
-    try { return JSON.parse(await readBody(req)) || {}; } catch { throw new ErreurDepot(400, "charge invalide"); }
+    let txt;
+    try { txt = await readBody(req, maxCorps); } catch (e) { throw new ErreurDepot(e.code === 413 ? 413 : 400, e.message); }
+    try { return JSON.parse(txt) || {}; } catch { throw new ErreurDepot(400, "charge invalide"); }
   }
 
   async function route(req, res) {
@@ -128,7 +133,10 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
         const s = d.specs.find((x) => x.chemin === u.searchParams.get("chemin"));
         return s ? send(res, 200, { ok: true, chemin: s.chemin, texte: s.texte }) : fail(res, 404, "spec inconnue");
       }
-      return send(res, 200, { ok: true, ...exportMd(d), textes: d.textes });
+      // Le mode fichiers garde statuts, priorités, rangs, notes et lots choisis dans chantiers.json :
+      // sans lui, repasser un projet en fichiers les perdrait.
+      const json = { meta: { projet: d.meta.projet, ui: d.meta.ui, version: d.meta.version }, chantiers: d.chantiers, items: d.items };
+      return send(res, 200, { ok: true, ...exportMd(d), json, textes: d.textes });
     }
 
     const rest = tab[2] === undefined ? null : tab[3];

@@ -22,6 +22,7 @@
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
 </svg>
 
@@ -34,6 +35,7 @@
   <div class="top-actions">
     <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
     <button class="icon-btn" id="exportBtn" type="button" aria-label="Exporter en Excel (.xlsx)" title="Exporter en Excel (.xlsx)"><svg aria-hidden="true"><use href="#i-download"/></svg></button>
+    <button class="icon-btn only-base" id="reglagesBtn" type="button" aria-label="Réglages du projet" title="Réglages du projet"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
     <button class="icon-btn" id="reloadBtn" type="button" aria-label="Recharger les données"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
     <button class="icon-btn" id="themeBtn" type="button" aria-label="Passer en thème sombre"><svg aria-hidden="true"><use href="#i-moon"/></svg></button>
   </div>
@@ -48,6 +50,7 @@
   <button type="button" data-view="items" aria-pressed="false">Tâches</button>
   <button type="button" data-view="done" aria-pressed="false">Terminés &amp; clos</button>
   <button type="button" data-view="code" aria-pressed="false">Code</button>
+  <button type="button" data-view="journal" aria-pressed="false" class="only-base">Journal</button>
 </nav>
 
 <div class="filters" id="filters" role="search" aria-label="Filtres">

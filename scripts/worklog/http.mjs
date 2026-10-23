@@ -51,13 +51,16 @@ export function writeGuard(req) {
   return null;
 }
 
-/** Corps de la requête, refusé au-delà de `max` octets. */
+/**
+ * Corps de la requête, refusé au-delà de `max` octets : la suite est lue sans être gardée, pour
+ * pouvoir répondre 413 (couper la connexion faisait croire à un serveur injoignable).
+ */
 export function readBody(req, max = MAX_BODY) {
   return new Promise((ok, ko) => {
     const chunks = [];
     let size = 0;
-    req.on("data", (c) => { size += c.length; if (size > max) { req.destroy(); ko(new Error("charge trop grande")); } else chunks.push(c); });
-    req.on("end", () => ok(Buffer.concat(chunks).toString("utf8")));
+    req.on("data", (c) => { size += c.length; if (size <= max) chunks.push(c); });
+    req.on("end", () => (size > max ? ko(Object.assign(new Error(`charge trop grande (${size} octets, limite ${max})`), { code: 413 })) : ok(Buffer.concat(chunks).toString("utf8"))));
     req.on("error", ko);
   });
 }

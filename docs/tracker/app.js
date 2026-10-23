@@ -158,9 +158,10 @@
     </div>`;
   }
 
+  const btnNeuf = (act, l) => (BASE() ? `<div class="row-btns vue-actions"><button type="button" class="btn primary" data-act-main="${act}">${l}</button></div>` : '');
   function renderPrio() {
     const open = data.chantiers.filter(OPEN).filter(chMatch).sort((a, b) => a.rang - b.rang);
-    return PRIOS.map((p) => {
+    return btnNeuf('nouveau-chantier', '+ Nouveau chantier') + PRIOS.map((p) => {
       const list = open.filter((c) => c.priorite === p);
       return `<section class="group" data-prio="${p}" aria-labelledby="g-${p}"><h2 id="g-${p}">${prio(p)} ${list.length} chantier(s)</h2>
         ${list.map((c, k) => row(c, k, list.length)).join('') || `<div class="drop-hint" data-prio="${p}">Aucun chantier en ${p}. Glisser un chantier ici, ou changer sa priorité dans sa fiche.</div>`}</section>`;
@@ -189,7 +190,7 @@
     const pick = `<div class="col-pick" role="group" aria-label="Colonne affichée">${BOARD.map((col) =>
       `<button type="button" data-pick="${col}" aria-pressed="${col === colTel}">${STATUTS[col]} <span class="mono">${nb(col)}</span></button>`).join('')}</div>`;
     return `<p class="count" role="status">${list.length - ab} tâche(s)${ab ? `, sans les ${ab} abandonnée(s) (onglet Tâches)` : ''}. Changer le statut : glisser la carte dans une autre colonne, ou choisir dans sa liste.</p>
-      ${pick}<div class="board">${BOARD.map((col) => {
+      ${btnNeuf('nouvelle-tache', '+ Nouvelle tâche')}${pick}<div class="board">${BOARD.map((col) => {
       const all = list.filter((i) => i.statut === col).sort(ord(col));
       const cs = colsOuvertes.has(col) ? all : all.slice(0, PAR_COL);
       const reste = all.length - cs.length;
@@ -219,7 +220,7 @@
       const s = sort.k === key ? (sort.d > 0 ? 'ascending' : 'descending') : 'none';
       return `<th scope="col" aria-sort="${s}"><button type="button" data-sort="${key}">${l}<span class="sr">, trier</span><span aria-hidden="true">${s === 'none' ? '' : s === 'ascending' ? ' ▲' : ' ▼'}</span></button></th>`;
     };
-    return `<p class="count" role="status">${list.length} tâche(s) sur ${data.items.length}</p>
+    return `${btnNeuf('nouvelle-tache', '+ Nouvelle tâche')}<p class="count" role="status">${list.length} tâche(s) sur ${data.items.length}</p>
       <div class="table-wrap"><table class="items tasks"><caption class="sr">Tâches, filtrées</caption>
       <thead><tr>${th('id', 'ID')}${th('priorite', 'P')}${th('titre', 'Tâche')}${th('statut', 'Statut')}${th('chantier', 'Chantier')}${th('lot', 'Lot')}<th scope="col" class="c-note">Note</th></tr></thead><tbody>
       ${list.map((i) => `<tr class="st-${esc(i.statut)}" data-item="${esc(i.id)}">
@@ -329,7 +330,9 @@
     document.body.dataset.view = view;
     document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
     renderKpis();
-    const v = { prio: renderPrio, board: renderBoard, items: renderItems, done: renderDone, code: renderCode }[view] || renderPrio;
+    document.body.classList.toggle('mode-base', BASE());
+    if (view === 'journal' && !BASE()) view = 'prio';
+    const v = { prio: renderPrio, board: renderBoard, items: renderItems, done: renderDone, code: renderCode, journal: renderJournal }[view] || renderPrio;
     $('#view').innerHTML = v();
   }
 
@@ -363,17 +366,19 @@
     const its = itemsOf(id);
     const n = progress(id);
     const sec = (t, h) => (h ? `<h3>${t}</h3><div class="txt">${h}</div>` : '');
-    openDrawer(`
+    const spec = BASE() && specDe(c);
+    openDrawer(`${baseTabs('chantier', c.id, 'fiche')}${baseActions('chantier', c.id, c)}
       <div class="ctrl">${pill(c.colonne, COLS[c.colonne], 'état')}
         <label>Priorité <select data-ch="priorite">${prioOptions(c.priorite)}</select></label>
         <label>Rang <input data-ch="rang" type="number" min="1" value="${esc(c.rang)}" style="width:6rem"></label>
         ${n.total ? `<div class="prog" style="min-width:12rem">${bar(n)} ${n.pct} %<span class="sr"> des tâches faites</span></div>` : ''}</div>
-      ${sec('État (CHANTIERS.md)', md(c.etat))}
+      ${sec(BASE() ? 'État' : 'État (CHANTIERS.md)', md(c.etat))}
       ${sec('Prochaine action', md(c.prochaine_action))}
       ${sec('Décisions en attente', c.decisions && c.decisions !== '—' ? md(c.decisions) : '')}
       ${sec('Preuve', md(c.preuve))}${sec('Ce qui en reste', md(c.reste))}
       ${sec('Docs', `<div class="docs">${docLinks(c.doc || c.preuve)}</div>`)}
       ${sec('Dernière MAJ', esc(c.clos_le || c.maj))}
+      ${spec ? `<h3>Spec</h3><div class="txt"><code>${esc(spec)}</code> <button type="button" class="btn" data-act="spec" data-cible="${esc(spec)}">Afficher la spec</button></div><div class="txt spec" id="specTxt"></div>` : ''}
       <h3><label for="drNote">Ma note</label></h3><textarea id="drNote" data-ch="note">${esc(c.note)}</textarea>
       ${its.length ? `<h3>Tâches (${its.length})</h3>${lotGroups(c, its)}` : ''}`,
     c.id, plain(c.titre));
@@ -404,12 +409,12 @@
     const i = data.items.find((x) => x.id === id);
     if (!i) return;
     const c = i.chantier && byId()[i.chantier];
-    openDrawer(`
+    openDrawer(`${baseTabs('tache', i.id, 'fiche')}${baseActions('tache', i.id)}
       <div class="ctrl" data-item="${esc(i.id)}">${prio(i.priorite)} ${i.decision ? pill('decision', UI().marque || 'DÉCISION', 'attend') : ''}
         <label>Statut <select data-f="statut">${options(STATUTS, i.statut)}</select></label>
         <label>Priorité <select data-f="priorite">${prioOptions(i.priorite)}</select></label></div>
       ${i.suivi ? `<h3>Suivi des sessions</h3><div class="txt">${esc(i.suivi)}</div>` : ''}
-      <h3>Section du backlog</h3><div class="txt">${esc(i.section)} · <a href="${esc(UI().backlog || '../chantiers/backlog.md')}" target="_blank" rel="noopener">backlog, ligne ${esc(i.ligne)}${NEW_WIN}</a></div>
+      ${BASE() ? '' : `<h3>Section du backlog</h3><div class="txt">${esc(i.section)} · <a href="${esc(UI().backlog || '../chantiers/backlog.md')}" target="_blank" rel="noopener">backlog, ligne ${esc(i.ligne)}${NEW_WIN}</a></div>`}
       <h3>Constat</h3><div class="txt">${md(i.constat || i.titre)}</div>
       ${i.attendu ? `<h3>Attendu</h3><div class="txt">${md(i.attendu)}</div>` : ''}
       <h3>Chantier</h3><div class="txt">${c ? `<a href="#${esc(c.id)}">${esc(c.id)} — ${esc(plain(c.titre))}</a>` : 'aucun'}</div>
@@ -421,6 +426,191 @@
     const h = decodeURIComponent(location.hash.slice(1));
     if (!h) return;
     if (h.startsWith('item/')) showItem(h.slice(5)); else showChantier(h);
+  }
+
+  // ---------- mode base : redaction, historique, journal, reglages ----------
+  // Actif seulement quand les donnees viennent du BFF (meta.mode === 'base'), servies par l'accueil
+  // qui relaie api/* vers le BFF avec son jeton et le nom de l'auteur. En mode fichiers : rien.
+  const BASE = () => !!(data && data.meta && data.meta.mode === 'base');
+  async function api(chemin, corps) {
+    const r = await fetch(chemin, corps === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || 'HTTP ' + r.status);
+    return j;
+  }
+  const operation = (op, args) => api('api/operation', { op, args });
+  async function recharger() {
+    const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    data = await r.json();
+    snapshot(); render(); syncInfo();
+  }
+  const court = (v) => { const t = v == null || v === '' ? '—' : String(v); return t.length > 160 ? t.slice(0, 160) + '…' : t; };
+  const suivant = (pre, ids) => {
+    const n = ids.map((i) => i.match(new RegExp('^' + pre + '-(\\d+)'))).filter(Boolean).map((m) => Number(m[1]));
+    return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(2, '0')}`;
+  };
+  const domaineDe = (cid) => {
+    const doms = data.items.filter((i) => cid && i.chantier === cid).map((i) => i.domaine);
+    return doms.sort((a, b) => doms.filter((d) => d === b).length - doms.filter((d) => d === a).length)[0] || '';
+  };
+
+  // Onglets Fiche / Historique et actions, en tete de la fiche d'un chantier ou d'une tache.
+  const baseTabs = (kind, id, on) => (BASE() ? `<div class="dr-tabs" role="group" aria-label="Vue de la fiche">
+      <button type="button" data-act="fiche" data-kind="${kind}" data-cible="${esc(id)}" aria-pressed="${on === 'fiche'}">Fiche</button>
+      <button type="button" data-act="hist" data-kind="${kind}" data-cible="${esc(id)}" aria-pressed="${on === 'hist'}">Historique</button></div>` : '');
+  const baseActions = (kind, id, c) => (BASE() ? `<div class="row-btns dr-actions">
+      <button type="button" class="btn primary" data-act="modifier" data-kind="${kind}" data-cible="${esc(id)}">Modifier</button>
+      ${kind === 'chantier' && !['clos', 'abandonne'].includes(c.colonne) ? `<button type="button" class="btn" data-act="clore" data-cible="${esc(id)}">Clore le chantier</button>` : ''}
+      ${kind === 'chantier' ? `<button type="button" class="btn" data-act="nouvelle-tache" data-cible="${esc(id)}">+ Nouvelle tâche</button>` : ''}</div>` : '');
+
+  const CH_CHAMPS = [['titre', 'Titre', 'input'], ['etat', 'État', 'input'], ['prochaine_action', 'Prochaine action', 'textarea'], ['decisions', 'Décisions en attente', 'textarea'], ['doc', 'Doc de reprise (chemin de la spec)', 'input'], ['note', 'Note', 'textarea']];
+  const T_CHAMPS = [['titre', 'Titre', 'input'], ['constat', 'Constat', 'textarea'], ['attendu', 'Attendu', 'textarea'], ['domaine', 'Domaine', 'input'], ['priorite', 'Priorité', 'prio'], ['statut', 'Statut', 'statut'], ['decision', 'Décision attendue', 'check'], ['chantier', 'Chantier', 'chantier'], ['note', 'Note', 'textarea']];
+  function champHtml([k, l, type], v, pref) {
+    const id = pref + k;
+    if (type === 'check') return `<div class="fld" data-champ="${k}"><label class="chk-line"><input type="checkbox" name="${k}" id="${id}"${v ? ' checked' : ''}> ${l}</label><p class="fld-err" role="alert" hidden></p></div>`;
+    const ctl = type === 'textarea' ? `<textarea name="${k}" id="${id}">${esc(v)}</textarea>`
+      : type === 'prio' ? `<select name="${k}" id="${id}">${prioOptions(v)}</select>`
+      : type === 'statut' ? `<select name="${k}" id="${id}">${options(STATUTS, v)}</select>`
+      : type === 'chantier' ? `<select name="${k}" id="${id}"><option value="">— aucun —</option>${data.chantiers.map((c) => `<option value="${esc(c.id)}"${c.id === v ? ' selected' : ''}>${esc(c.id)} · ${esc(plain(c.titre).slice(0, 40))}</option>`).join('')}</select>`
+      : `<input name="${k}" id="${id}" value="${esc(v)}" autocomplete="off">`;
+    return `<div class="fld" data-champ="${k}"><label for="${id}">${l}</label>${ctl}<p class="fld-err" role="alert" hidden></p></div>`;
+  }
+  const lireForm = (form, defs) => Object.fromEntries(defs.filter(([k]) => form.elements[k]).map(([k, , type]) => [k, type === 'check' ? form.elements[k].checked : form.elements[k].value]));
+
+  // Un formulaire dans le panneau : Enregistrer / Annuler, erreurs par champ, saisie jamais perdue.
+  let formEnCours = null;
+  function formulaire(f) {
+    formEnCours = f;
+    openDrawer(`<form class="edit" data-form="${esc(f.nom || '')}" novalidate>${f.html}
+      <p class="form-err" role="alert" tabindex="-1" hidden></p>
+      <div class="row-btns"><button type="submit" class="btn primary">${esc(f.bouton)}</button><button type="button" class="btn" data-act="annuler">Annuler</button></div></form>`, f.id, f.titre);
+    delete $('#drBody').dataset.ch;
+    const first = $('#drBody input, #drBody textarea, #drBody select');
+    if (first) first.focus();
+  }
+
+  function editer(kind, id) {
+    const obj = kind === 'chantier' ? byId()[id] : data.items.find((x) => x.id === id);
+    if (!obj) return;
+    const defs = kind === 'chantier' ? CH_CHAMPS : T_CHAMPS;
+    const depart = Object.fromEntries(defs.map(([k, , type]) => [k, obj[k] ?? (type === 'check' ? false : '')]));
+    formulaire({
+      nom: kind, titre: `Modifier ${id}`, id, defs, bouton: 'Enregistrer',
+      html: defs.map((d) => champHtml(d, depart[d[0]], 'e-')).join(''),
+      async envoyer(val) {
+        const champs = {}, base = {};
+        for (const k of Object.keys(val)) if (JSON.stringify(val[k]) !== JSON.stringify(depart[k])) { champs[k] = val[k]; base[k] = depart[k]; }
+        if (!Object.keys(champs).length) return {};
+        const r = await operation(kind === 'chantier' ? 'modifierChantier' : 'modifierTache', { id, champs, base });
+        const conflits = (r.resultat && r.resultat.conflits) || [];
+        // La valeur actuelle devient la reference : enregistrer a nouveau confirme la saisie gardee.
+        for (const c of conflits) depart[c.champ] = c.valeur ?? '';
+        for (const k of Object.keys(champs)) if (!conflits.some((c) => c.champ === k)) depart[k] = champs[k];
+        return { conflits };
+      },
+      retour: () => (kind === 'chantier' ? showChantier(id) : showItem(id)),
+    });
+  }
+
+  function clore(id) {
+    const defs = [['preuve', 'Preuve (commit, constat…)', 'textarea'], ['reste', 'Ce qui en reste', 'textarea'], ['abandon', 'Abandonné (non livré)', 'check']];
+    formulaire({
+      nom: 'clore', titre: `Clore ${id}`, id, defs, bouton: 'Clore',
+      html: defs.map((d) => champHtml(d, d[2] === 'check' ? false : '', 'c-')).join(''),
+      async envoyer(v) { await operation('cloreChantier', { id, preuve: v.preuve, reste: v.reste, abandon: v.abandon }); return {}; },
+      retour: () => showChantier(id),
+    });
+  }
+
+  function nouveauChantier() {
+    const defs = [['id', 'Identifiant', 'input'], ['titre', 'Titre', 'input'], ['etat', 'État', 'input'], ['prochaine_action', 'Prochaine action', 'textarea'], ['priorite', 'Priorité', 'prio'], ['doc', 'Doc de reprise (chemin de la spec)', 'input']];
+    const v0 = { id: suivant('CH', data.chantiers.map((c) => c.id)), titre: '', etat: 'pas commencé', prochaine_action: '', priorite: 'P2', doc: '' };
+    formulaire({
+      nom: 'chantier-neuf', titre: 'Nouveau chantier', id: '', defs, bouton: 'Créer',
+      html: defs.map((d) => champHtml(d, v0[d[0]], 'n-')).join(''),
+      async envoyer(v) { const r = await operation('creerChantier', v); return { cree: r.resultat }; },
+      retour: (r) => (r && r.cree ? showChantier(r.cree) : closeDrawer()),
+    });
+  }
+
+  function nouvelleTache(cid) {
+    const defs = [['chantier', 'Chantier', 'chantier'], ['domaine', 'Domaine (préfixe de l’identifiant)', 'input'], ['id', 'Identifiant', 'input'], ['titre', 'Titre', 'input'], ['constat', 'Constat', 'textarea'], ['attendu', 'Attendu', 'textarea'], ['priorite', 'Priorité', 'prio'], ['decision', 'Décision attendue', 'check']];
+    const dom = domaineDe(cid);
+    const v0 = { chantier: cid || '', domaine: dom, id: dom ? suivant(dom, data.items.map((i) => i.id)) : '', titre: '', constat: '', attendu: '', priorite: 'P2', decision: false };
+    formulaire({
+      nom: 'tache-neuve', titre: 'Nouvelle tâche', id: '', defs, bouton: 'Créer',
+      html: defs.map((d) => champHtml(d, v0[d[0]], 'n-')).join(''),
+      async envoyer(v) {
+        const args = { ...v, decision: Boolean(v.decision) };
+        if (!args.chantier) delete args.chantier;
+        const r = await operation('creerTache', args);
+        return { cree: r.resultat };
+      },
+      retour: (r) => (r && r.cree ? showItem(r.cree) : (cid ? showChantier(cid) : closeDrawer())),
+    });
+  }
+
+  async function historique(kind, id) {
+    const titre = $('#drTitle').textContent;
+    openDrawer(`${baseTabs(kind, id, 'hist')}<p class="muted" role="status">Lecture de l’historique…</p>`, id, titre);
+    delete $('#drBody').dataset.ch;
+    try {
+      const j = await api(`api/historique?objet=${kind === 'chantier' ? 'chantier' : 'tache'}&id=${encodeURIComponent(id)}`);
+      $('#drBody').innerHTML = baseTabs(kind, id, 'hist') + (j.lignes.length ? `<ol class="hist-list">${j.lignes.map((l) => `<li>
+        <span class="who ${l.type_auteur === 'session' ? 'ag' : 'moi'}"><span class="sr">${l.type_auteur === 'session' ? 'session' : 'interface'} </span>${esc(l.auteur)}</span>
+        <time>${esc(String(l.quand || '').replace('T', ' ').replace('Z', ' UTC'))}</time>
+        ${l.champ === '*' ? `<span>${l.avant ? 'retiré' : 'créé'}</span>` : `<span><b>${esc(l.champ)}</b> <del><span class="sr">avant : </span>${esc(court(l.avant))}</del> → <ins><span class="sr">après : </span>${esc(court(l.apres))}</ins></span>`}</li>`).join('')}</ol>`
+        : '<p class="muted">Aucune modification enregistrée.</p>');
+    } catch (err) {
+      $('#drBody').innerHTML = baseTabs(kind, id, 'hist') + `<p class="form-err" role="alert">Historique illisible : ${esc(err.message)}</p>`;
+    }
+    const t = $('#drBody [data-act="hist"]'); if (t) t.focus();
+  }
+
+  // La spec d'un chantier, envoyee au BFF par la commande du projet : texte affiche dans la fiche.
+  const specDe = (c) => ((data.meta && data.meta.specs) || []).find((p) => String(c.doc || '').includes(p.split('/').pop()));
+  async function montrerSpec(chemin, cible) {
+    try {
+      const j = await api(`api/spec?chemin=${encodeURIComponent(chemin)}`);
+      cible.innerHTML = j.texte.split(/\r?\n/).map((l) => {
+        const h = l.match(/^(#{1,4})\s+(.*)$/);
+        return h ? `<h4>${md(h[2])}</h4>` : l.trim() ? `<p>${md(l)}</p>` : '';
+      }).join('');
+    } catch (err) { cible.innerHTML = `<p class="form-err" role="alert">${esc(err.message)}</p>`; }
+  }
+
+  function renderJournal() {
+    const j = data.journal || { consigne: '', entrees: [] };
+    const lignes = j.entrees.slice().reverse();
+    return `${j.consigne ? `<p class="count">${md(j.consigne)}</p>` : ''}
+      ${lignes.length ? `<ol class="journal">${lignes.map((e) => (e.brut ? `<li class="brut">${md(e.brut)}</li>` : `<li>
+        <div class="j-head"><time class="mono">${esc(e.date)}</time><span class="who ag">${esc(e.session)}</span>${e.chantiers ? `<span class="mono">${esc(e.chantiers)}</span>` : ''}</div>
+        <div class="txt">${md(e.texte)}</div>${(e.commits && e.commits !== '—') || (e.docs && e.docs !== '—') ? `<small class="muted">${md([e.commits, e.docs].filter((x) => x && x !== '—').join(' · '))}</small>` : ''}</li>`)).join('')}</ol>` : '<p class="empty">Journal vide.</p>'}`;
+  }
+
+  function reglages() {
+    const md0 = (data.reglages && data.reglages.md) || 'garder';
+    const radio = (v, l, aide) => `<label class="radio-line"><input type="radio" name="md" value="${v}"${md0 === v ? ' checked' : ''}> <span><b>${l}</b><small>${aide}</small></span></label>`;
+    openDrawer(`<fieldset class="modes-md"><legend>Fichiers Markdown du dépôt (CHANTIERS.md, backlog)</legend>
+        ${radio('garder', 'Garder tels quels', 'Ils restent dans le dépôt, gelés : une ligne en tête dit que le suivi vit dans la base.')}
+        ${radio('retirer', 'Retirer du dépôt', 'La commande du projet les supprime à son prochain passage (une fois gelés) ; le commit reste à faire.')}
+      </fieldset>
+      <h3>Générer les .md à la demande</h3>
+      <p class="txt">Le registre et le backlog tels qu’ils sont en base, au format du mode fichiers. Dans le dépôt : <code>npm run chantiers -- --exporter</code>.</p>
+      <div class="row-btns"><button type="button" class="btn primary" data-act="exporter">Télécharger en Markdown</button></div>
+      <p class="muted" id="regEtat" role="status"></p>`, 'Réglages', `Projet ${plain(data.meta.projet || '')}`);
+    delete $('#drBody').dataset.ch;
+  }
+  async function exporter() {
+    const j = await api('api/export');
+    for (const [nom, texte, type] of [['CHANTIERS.md', j.chantiers, 'text/markdown'], ['backlog.md', j.backlog, 'text/markdown'], ['chantiers.json', JSON.stringify(j.json, null, 4) + '\n', 'application/json']]) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([texte], { type: type + ';charset=utf-8' }));
+      a.download = nom;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
   }
 
   // ---------- edition ----------
@@ -556,6 +746,10 @@
 
   function syncInfo() {
     const m = data.meta;
+    if (m.mode === 'base') {
+      $('#syncInfo').textContent = `Base de données · version ${m.version}` + (m.edition ? ` · dernière modification ${String(m.edition).replace('T', ' ').replace('Z', ' UTC')}` : '');
+      return;
+    }
     $('#syncInfo').textContent = `CHANTIERS.md relu le ${String(m.synchro_md || '?').replace('T', ' ').replace('Z', ' UTC')}` +
       (m.edition ? ` · dernière édition ${m.edition.replace('T', ' ').replace('Z', ' UTC')}` : '') + ` · v${m.version}`;
   }
@@ -689,6 +883,8 @@
       const again = $(`button[data-sort="${sort.k}"]`); if (again) again.focus();
       return;
     }
+    const neuf = e.target.closest('button[data-act-main]');
+    if (neuf) { if (neuf.dataset.actMain === 'nouveau-chantier') nouveauChantier(); else nouvelleTache(F.ch.value && F.ch.value !== '__none' ? F.ch.value : ''); return; }
     const pk = e.target.closest('button[data-pick]');
     if (pk) { colTel = pk.dataset.pick; store.set('colTel', colTel); render(); const b = $(`[data-pick="${colTel}"]`); if (b) b.focus(); return; }
     const more = e.target.closest('button[data-more]');
@@ -798,11 +994,75 @@
     if (d.open) lotsOuverts.add(d.dataset.lot); else lotsOuverts.delete(d.dataset.lot);
   }, true);
   $('#drClose').addEventListener('click', closeDrawer);
+  // Mode base : onglets, actions et formulaires du panneau.
+  body.addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const a = b.dataset.act, k = b.dataset.kind, id = b.dataset.cible;
+    if (a === 'annuler') { const f = formEnCours; formEnCours = null; if (f) f.retour(); return; }
+    if (a === 'fiche') { (k === 'chantier' ? showChantier : showItem)(id); const t = $('#drBody [data-act="fiche"]'); if (t) t.focus(); return; }
+    if (a === 'hist') return historique(k, id);
+    if (a === 'modifier') return editer(k, id);
+    if (a === 'clore') return clore(id);
+    if (a === 'nouvelle-tache') return nouvelleTache(id);
+    if (a === 'spec') { b.disabled = true; return montrerSpec(id, $('#specTxt')); }
+    if (a === 'exporter') {
+      try { await exporter(); $('#regEtat').textContent = 'Trois fichiers téléchargés : CHANTIERS.md, backlog.md et chantiers.json (statuts, priorités, notes).'; } catch (err) { $('#regEtat').textContent = 'Échec : ' + err.message; }
+    }
+  });
+  body.addEventListener('change', async (e) => {
+    const el = e.target;
+    if (el.name === 'md' && el.type === 'radio') {
+      try { await operation('reglages', { md: el.value }); await recharger(); $('#regEtat').textContent = el.value === 'retirer' ? 'Les .md seront retirés au prochain passage de la commande du projet.' : 'Les .md restent dans le dépôt, gelés.'; }
+      catch (err) { $('#regEtat').textContent = 'Échec : ' + err.message; }
+      return;
+    }
+    // Nouvelle tache : le domaine suit le chantier choisi, l'identifiant propose suit le domaine (tant qu'on ne l'a pas tape).
+    const form = el.closest('form[data-form="tache-neuve"]');
+    if (!form) return;
+    if (el.name === 'chantier') form.elements.domaine.value = domaineDe(el.value) || form.elements.domaine.value;
+    if ((el.name === 'chantier' || el.name === 'domaine') && !form.elements.id.dataset.touche && form.elements.domaine.value) form.elements.id.value = suivant(form.elements.domaine.value.trim(), data.items.map((i) => i.id));
+    if (el.name === 'id') form.elements.id.dataset.touche = '1';
+  });
+  body.addEventListener('submit', async (e) => {
+    const form = e.target;
+    if (!form.matches('form[data-form]') || !formEnCours) return;
+    e.preventDefault();
+    const f = formEnCours;
+    form.querySelectorAll('.fld-err, .form-err').forEach((n) => { n.hidden = true; n.textContent = ''; });
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      const r = await f.envoyer(lireForm(form, f.defs));
+      await recharger();
+      if (r.conflits && r.conflits.length) {
+        // Les autres champs sont enregistres ; ceux-ci ont change entre-temps : la saisie reste, la valeur actuelle est dite.
+        for (const c of r.conflits) {
+          const n = form.querySelector(`[data-champ="${CSS.escape(c.champ)}"] .fld-err`);
+          if (n) { n.textContent = `Modifié entre-temps : la valeur actuelle est « ${court(c.valeur)} ». Votre saisie est gardée ; « Enregistrer » la confirme.`; n.hidden = false; }
+        }
+        setState('Enregistré, sauf les champs signalés', 'err');
+        btn.disabled = false;
+        const premier = form.querySelector(`[data-champ="${CSS.escape(r.conflits[0].champ)}"] input, [data-champ="${CSS.escape(r.conflits[0].champ)}"] textarea, [data-champ="${CSS.escape(r.conflits[0].champ)}"] select`);
+        if (premier) premier.focus();
+        return;
+      }
+      formEnCours = null;
+      setState('Enregistré à ' + new Date().toLocaleTimeString('fr-FR'), 'ok');
+      f.retour(r);
+    } catch (err) {
+      const n = form.querySelector('.form-err');
+      n.textContent = err.message; n.hidden = false;
+      btn.disabled = false;
+      n.focus();
+    }
+  });
   $('#scrim').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
   window.addEventListener('hashchange', () => { if (location.hash) route(); else closeDrawer(); });
 
   $('#reloadBtn').addEventListener('click', load);
+  $('#reglagesBtn').addEventListener('click', () => { if (BASE()) reglages(); });
   $('#exportBtn').addEventListener('click', exportXlsx);
   const applyTheme = (t) => {
     if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;

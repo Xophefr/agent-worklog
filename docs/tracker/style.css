@@ -332,6 +332,7 @@ main code { overflow-wrap: anywhere; }
 }
 /* Accueil multi-projets (accueil.html) : une carte par projet, liseré à sa couleur. */
 .pill.a_verifier { color: var(--warn); background: var(--warn-bg); }
+.pill.stock { font-size: .6875rem; color: var(--accent); background: var(--accent-soft); vertical-align: middle; }
 .projets { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: 1rem; }
 .proj { position: relative; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-top: .25rem solid var(--proj, var(--accent)); border-radius: var(--radius); box-shadow: var(--shadow); transition: box-shadow .15s, border-color .15s; min-width: 0; }
 .proj:hover, .proj:focus-within { box-shadow: var(--shadow-up); }
@@ -370,6 +371,41 @@ a.proj-body:hover h2 { text-decoration: underline; text-underline-offset: .15em;
 .proj.add .radio input { width: 1.125rem; height: 1.125rem; min-height: 0; accent-color: var(--accent); }
 .proj.add input + label { margin-top: .75rem; }
 .proj.add #addNom { font-family: var(--sans); font-size: .9375rem; }
+
+/* Mode base (données du BFF) : rédaction dans le panneau, historique, journal. */
+.only-base { display: none !important; }
+body.mode-base .only-base { display: inline-grid !important; }
+body.mode-base .tabs .only-base { display: inline-block !important; }
+body[data-view="journal"] .filters { display: none; }
+.vue-actions { margin: .5rem 0 .75rem; }
+.dr-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line); margin: -.25rem 0 .75rem; }
+.dr-tabs button { border: 0; background: none; padding: .5rem .75rem; min-height: 2.75rem; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; cursor: pointer; }
+.dr-tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.dr-actions { margin-bottom: .75rem; }
+form.edit .fld { margin-bottom: .75rem; }
+form.edit .fld > label { display: block; font-size: .8125rem; font-weight: 700; color: var(--muted); margin-bottom: .25rem; }
+form.edit input:not([type]), form.edit input[type="text"], form.edit select, form.edit textarea { width: 100%; min-height: 2.75rem; padding: .375rem .5rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); }
+form.edit .chk-line { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.75rem; font-weight: 600; }
+form.edit .chk-line input, .radio-line input { width: 1.125rem; height: 1.125rem; accent-color: var(--accent); }
+.fld-err, .form-err { color: var(--p0); font-weight: 600; font-size: .8125rem; margin: .25rem 0 0; }
+.hist-list, .journal { list-style: none; margin: 0; padding: 0; }
+.hist-list li { display: flex; flex-wrap: wrap; gap: .25rem .5rem; align-items: baseline; padding: .5rem 0; border-bottom: 1px solid var(--line); font-size: .875rem; overflow-wrap: anywhere; }
+.hist-list time { font: .75rem var(--mono); color: var(--muted); }
+.who { display: inline-block; font-size: .75rem; font-weight: 700; border-radius: 99px; padding: 0 .5rem; }
+.who.moi { background: var(--accent-soft); color: var(--accent); }
+.who.ag { background: var(--ok-bg); color: var(--ok); }
+.hist-list del { color: var(--p0); } .hist-list ins { color: var(--ok); text-decoration: none; }
+.journal li { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: .625rem .875rem; margin-bottom: .5rem; }
+.journal .j-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .25rem; font-size: .8125rem; }
+.journal li.brut { color: var(--muted); font-size: .875rem; }
+.spec { margin-top: .5rem; padding: .5rem .75rem; border-left: 3px solid var(--line); }
+.spec h4 { margin: .75rem 0 .25rem; font-size: .9375rem; }
+.spec p { margin: .25rem 0; }
+.modes-md { border: 0; padding: 0; margin: 0 0 1rem; }
+.modes-md legend { font-weight: 700; margin-bottom: .5rem; }
+.radio-line { display: flex; gap: .625rem; align-items: flex-start; padding: .5rem 0; min-height: 2.75rem; cursor: pointer; }
+.radio-line span { display: flex; flex-direction: column; }
+.radio-line small { color: var(--muted); }
 
 html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

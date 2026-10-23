@@ -22,6 +22,9 @@
   let ajoutErreur = '';
   let ajoutMode = 'nouveau';  // 'nouveau' : projet parti de zero ; 'existant' : reprise d'un dossier
   let ajoutSaisie = { nom: '', dossier: '' };
+  let liens = 0;            // BFF lies a l'accueil (mode base possible)
+  let ajoutStockage = 'fichiers';
+  let aBaser = null;        // id dont la confirmation de passage en base est ouverte
 
   const dark = () => document.documentElement.dataset.theme === 'dark'
     || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -38,7 +41,7 @@
     const acc = (dark() ? r.accentSombre : r.accent) || '';
     return `<li class="proj" data-id="${esc(p.id)}"${acc ? ` style="--proj:${esc(acc)}"` : ''}>
       <a class="proj-body" href="/p/${encodeURIComponent(p.id)}/">
-        <h2>${esc(r.nom || p.id)}</h2>
+        <h2>${esc(r.nom || p.id)}${p.type === 'base' ? ' <span class="pill stock">base</span>' : ''}</h2>
         <p class="proj-pct"><b>${t.pct} %</b> <span>${t.fait} / ${t.base} tâches faites</span></p>
         <div class="bar" aria-hidden="true"><i class="s-fait" style="width:${w('fait')}%"></i><i class="s-a_verifier" style="width:${w('a_verifier')}%"></i><i class="s-en_cours" style="width:${w('en_cours')}%"></i></div>
         <ul class="chips">
@@ -49,7 +52,16 @@
         </ul>
         <p class="proj-act">${plural(r.bouges7j, 'tâche bougée', 'tâches bougées')} en 7 jours${r.derniere ? ` · dernière le ${esc(r.derniere)}` : ''}</p>
         ${r.aJour ? '' : `<p class="proj-maj">outil ${esc(r.version || 'inconnu')}, accueil ${esc(outil)} : relancer install.mjs</p>`}
-      </a>${retrait(p)}</li>`;
+      </a>${p.type !== 'base' && liens ? passage(p) : ''}${retrait(p)}</li>`;
+  }
+
+  // Projet en fichiers, BFF lie : import dans la base, confirme dans la carte.
+  function passage(p) {
+    if (aBaser !== p.id) return `<button type="button" class="proj-x" data-baser="${esc(p.id)}">Passer en base<span class="sr"> : ${esc(p.id)}</span></button>`;
+    return `<div class="proj-confirm" role="group" aria-label="Passer ${esc(p.id)} en base ?">
+      <p>Importer ce projet dans la base ? Ses .md restent dans le dépôt, gelés ; les sessions écriront ensuite dans la base.</p>
+      <button type="button" class="btn primary" data-baser-ok="${esc(p.id)}">Importer</button>
+      <button type="button" class="btn" data-baser-non="${esc(p.id)}">Annuler</button></div>`;
   }
 
   function retrait(p) {
@@ -69,6 +81,7 @@
     const radio = (v, l) => `<label class="radio"><input type="radio" name="mode" value="${v}"${ajoutMode === v ? ' checked' : ''}> ${l}</label>`;
     return `<li class="proj add open"><form id="addForm" class="proj-body">
       <fieldset class="modes"><legend>Ajouter</legend>${radio('nouveau', 'Nouveau projet')}${radio('existant', 'Projet existant')}</fieldset>
+      ${liens ? `<fieldset class="modes"><legend>Suivi</legend>${['fichiers', 'base'].map((v) => `<label class="radio"><input type="radio" name="stockage" value="${v}"${ajoutStockage === v ? ' checked' : ''}> ${v === 'base' ? 'Base de données' : 'Fichiers .md'}</label>`).join('')}</fieldset>` : ''}
       ${neuf ? `<label for="addNom">Nom du projet</label>
       <input id="addNom" name="nom" required autocomplete="off" value="${esc(ajoutSaisie.nom)}">` : ''}
       <label for="addDir">Dossier du projet</label>
@@ -92,6 +105,7 @@
       if (!j.ok) throw new Error(j.error || 'HTTP ' + r.status);
       projets = j.projets;
       outil = j.outil;
+      liens = j.liens || 0;
       render(focusSel);
     } catch (e) {
       $('#projets').innerHTML = `<li class="empty" role="alert">Impossible de lire la liste des projets (${esc(e.message)}).</li>`;
@@ -111,13 +125,22 @@
     return card ? `[data-id="${CSS.escape(card.dataset.id)}"] a.proj-body` : null;
   }
   // Une saisie en cours ou une confirmation ouverte ne sont jamais effacees par le rafraichissement.
-  setInterval(() => { if (!ajoutOuvert && !aRetirer && !document.hidden) load(focusSel()); }, 30000);
+  setInterval(() => { if (!ajoutOuvert && !aRetirer && !aBaser && !document.hidden) load(focusSel()); }, 30000);
 
   $('#projets').addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.id === 'addBtn') { ajoutOuvert = true; ajoutErreur = ''; ajoutSaisie = { nom: '', dossier: '' }; render('input[name="mode"]:checked'); return; }
     if (b.id === 'addCancel') { ajoutOuvert = false; render('#addBtn'); return; }
+    if (b.dataset.baser) { aBaser = b.dataset.baser; render(`[data-baser-non="${CSS.escape(aBaser)}"]`); return; }
+    if (b.dataset.baserNon) { const id = aBaser; aBaser = null; render(`[data-baser="${CSS.escape(id)}"]`); return; }
+    if (b.dataset.baserOk) {
+      const id = b.dataset.baserOk;
+      b.disabled = true; b.textContent = 'Import…';
+      try { await post('/api/projets/passer-en-base', { id }); aBaser = null; await load(`[data-id="${CSS.escape(id)}"] a.proj-body`); }
+      catch (err) { aBaser = null; render(`[data-baser="${CSS.escape(id)}"]`); alertLine(err.message); }
+      return;
+    }
     if (b.dataset.retirer) { aRetirer = b.dataset.retirer; render(`[data-annuler="${CSS.escape(aRetirer)}"]`); return; }
     if (b.dataset.annuler) { const id = aRetirer; aRetirer = null; render(`[data-retirer="${CSS.escape(id)}"]`); return; }
     if (b.dataset.confirmer) {
@@ -127,6 +150,7 @@
   });
   // Changer de mode garde ce qui est deja saisi.
   $('#projets').addEventListener('change', (e) => {
+    if (e.target.name === 'stockage') { ajoutStockage = e.target.value; return; }
     if (e.target.name !== 'mode') return;
     lireSaisie(); ajoutMode = e.target.value; ajoutErreur = '';
     render(`input[name="mode"][value="${ajoutMode}"]`);
@@ -141,7 +165,7 @@
     const btn = e.target.querySelector('[type="submit"]');
     btn.disabled = true; btn.textContent = 'Installation…';
     try {
-      const j = await post('/api/projets', { mode: ajoutMode, dossier, nom: ajoutSaisie.nom.trim() });
+      const j = await post('/api/projets', { mode: ajoutMode, dossier, nom: ajoutSaisie.nom.trim(), stockage: liens ? ajoutStockage : 'fichiers' });
       ajoutOuvert = false; ajoutErreur = '';
       await load(`[data-id="${CSS.escape(j.projet.id)}"] a.proj-body, [data-id="${CSS.escape(j.projet.id)}"] .proj-x`);
     } catch (err) { ajoutErreur = err.message; render('#addDir'); }

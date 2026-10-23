@@ -120,7 +120,7 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     if (req.method === "POST") {
       const refus = writeGuard(req);
       if (refus) return fail(res, refus.code, refus.error);
-      corps = await readBody(req);
+      try { corps = await readBody(req); } catch (e) { return fail(res, e.code === 413 ? 413 : 400, e.message); }
     } else if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "méthode non admise");
     let r;
     try { r = await bffAppel(b, chemin, { method: req.method === "POST" ? "POST" : "GET", body: corps }); } catch (e) { return fail(res, 502, e.message); }

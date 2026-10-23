@@ -213,7 +213,8 @@ export async function mainBase(ROOT, cfg, argv) {
       const dest = opts.remplacer ? null : join(ROOT, "docs", `export-${jour()}`);
       const cibles = (dest ? [join(dest, "CHANTIERS.md"), join(dest, "backlog.md")] : [at(ROOT, cfg, "chantiers"), at(ROOT, cfg, "backlog")]).map((p) => dans(ROOT, p));
       if (typeof e.chantiers !== "string" || typeof e.backlog !== "string") throw new ErreurClient(1, "export illisible");
-      for (const [p, texte] of [[cibles[0], e.chantiers], [cibles[1], e.backlog]]) {
+      const json = dans(ROOT, dest ? join(dest, "chantiers.json") : join(at(ROOT, cfg, "tracker"), "chantiers.json"));
+      for (const [p, texte] of [[cibles[0], e.chantiers], [cibles[1], e.backlog], [json, JSON.stringify(e.json, null, 4) + "\n"]]) {
         mkdirSync(dirname(p), { recursive: true });
         writeFileSync(p, texte, "utf8");
         console.log(`écrit ${posix(relative(ROOT, p))}`);
