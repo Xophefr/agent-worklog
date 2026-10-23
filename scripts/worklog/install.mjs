@@ -45,7 +45,7 @@ export function installInto(dest, { nom, out = console.log } = {}) {
   for (const f of UI_FILES) { copyFileSync(join(SRC, "docs", "tracker", f), join(ui, f)); log("copié", join(ui, f)); }
   const sd = join(dest, "scripts", "worklog");
   mkdirSync(sd, { recursive: true });
-  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !OUTIL_SEUL.includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
+  for (const f of readdirSync(HERE, { withFileTypes: true }).filter((e) => e.isFile() && !e.name.includes(".test.") && !OUTIL_SEUL.includes(e.name)).map((e) => e.name)) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
   // La version installée reste dans le projet : on sait d'où l'on part à la mise à jour suivante.
   const version = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
   const vFile = join(sd, "VERSION");

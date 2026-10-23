@@ -10,6 +10,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseJournal, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
 import { exportMd } from "./export-md.mjs";
+import { ouvrirBase } from "./base/connexion.mjs";
+import { migrer, TABLES } from "./base/schema.mjs";
+import { creerDepot } from "./base/depot.mjs";
+import { homedir } from "node:os";
 import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
@@ -502,3 +506,80 @@ test("export Markdown : relu par le mode fichiers sans perte", () => {
   assert.equal(j.consigne, "Ajout seul.");
   assert.equal(j.entrees[0].texte, "OUVERT. a | b");
 });
+
+// ---------- mode base : suite de contrat, sur chaque base de test fournie ----------
+// Les URL viennent de l'environnement ou de ~/.agent-worklog/test-bases.env (jamais affichées).
+// Les tables wl_* de ces bases sont effacées à chaque passage : des bases dédiées aux tests.
+function basesDeTest() {
+  const env = { ...process.env };
+  const f = join(homedir(), ".agent-worklog", "test-bases.env");
+  if (existsSync(f)) for (const l of readFileSync(f, "utf8").split(/\r?\n/)) { const m = l.match(/^\s*(WORKLOG_TEST_\w+)\s*=\s*(.+?)\s*$/); if (m && !env[m[1]]) env[m[1]] = m[2]; }
+  return [["PostgreSQL", env.WORKLOG_TEST_PG], ["MySQL", env.WORKLOG_TEST_MYSQL]].filter(([, u]) => u);
+}
+const BASES = basesDeTest();
+if (!BASES.length) test("mode base : aucune base de test (WORKLOG_TEST_PG / WORKLOG_TEST_MYSQL), suite de contrat sautée", { skip: true }, () => {});
+
+async function baseNeuve(url) {
+  const base = await ouvrirBase(url);
+  for (const t of TABLES) await base.requete(`DROP TABLE IF EXISTS ${t}`);
+  await migrer(base);
+  return base;
+}
+const MOI = { nom: "moi", type: "interface" };
+const S1 = { nom: "s1", type: "session" };
+
+for (const [nom, url] of BASES) {
+  test(`base ${nom} : migration, projet, écriture tracée, conflit, concurrence, textes, jetons`, async (t) => {
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    await migrer(base); // deux fois : sans erreur
+    const depot = creerDepot(base);
+    await depot.creerProjet({ id: "demo", nom: "Démo", ui: { accent: "#123456" } }, MOI);
+    assert.deepEqual((await depot.projets()).map((p) => p.id), ["demo"]);
+
+    const r = await depot.ecrire("demo", S1, (d) => creerChantier(d, { titre: "API" }));
+    assert.equal(r.resultat, "CH-01");
+    await depot.ecrire("demo", S1, (d) => creerTache(d, { chantier: "CH-01", titre: "Lire", domaine: "API" }));
+    let d = await depot.lire("demo");
+    assert.equal(d.meta.mode, "base");
+    assert.equal(d.meta.projet, "Démo");
+    assert.equal(d.items[0].id, "API-01");
+    assert.ok(d.meta.version > 0);
+
+    const m = await depot.ecrire("demo", MOI, (x) => modifierTache(x, "API-01", { statut: "fait" }));
+    assert.deepEqual(m.changements.map((c) => [c.champ, c.avant, c.apres]), [["statut", "a_faire", "fait"]]);
+    const m2 = await depot.ecrire("demo", S1, (x) => modifierTache(x, "API-01", { statut: "en_cours" }));
+    assert.equal(m2.changements[0].auteurAvant.nom, "moi");
+    assert.equal(m2.changements[0].auteurAvant.type, "interface");
+    const h = await depot.historique("demo", "tache", "API-01");
+    assert.deepEqual(h.slice(0, 2).map((l) => [l.champ, l.avant, l.apres, l.auteur, l.type_auteur]), [["statut", "fait", "en_cours", "s1", "session"], ["statut", "a_faire", "fait", "moi", "interface"]]);
+
+    const p = await depot.ecrire("demo", MOI, (x) => applyPatch(x, { items: [{ id: "API-01", set: { statut: "fait" }, base: { statut: "a_faire" } }] }));
+    assert.equal(p.resultat.conflicts.length, 1);
+    assert.equal(p.changements.length, 0);
+    assert.equal((await depot.lire("demo")).items[0].statut, "en_cours");
+
+    // Review Focus 1 : 20 écritures concurrentes, toutes gardées (verrou du projet).
+    await Promise.all(Array.from({ length: 20 }, (_, k) => depot.ecrire("demo", S1, (x) => {
+      const c = x.chantiers.find((y) => y.id === "CH-01");
+      modifierChantier(x, "CH-01", { note: `${c.note || ""}[${k}]` });
+    })));
+    const note = (await depot.lire("demo")).chantiers[0].note;
+    for (let k = 0; k < 20; k++) assert.ok(note.includes(`[${k}]`), `écriture ${k} perdue`);
+
+    // Review Focus 2 : texte long et caractères spéciaux.
+    const bs = String.fromCharCode(92);
+    const long = `'${bs}|😀\n`.repeat(4000);
+    await depot.ecrire("demo", MOI, (x) => modifierTache(x, "API-01", { constat: long }));
+    assert.equal((await depot.lire("demo")).items[0].constat, long);
+
+    await depot.ecrire("demo", S1, (x) => ajouterJournal(x, { date: "2026-10-23", session: "s1", texte: "OUVERT." }));
+    assert.equal((await depot.lire("demo")).journal.entrees.length, 1);
+
+    const j = await depot.creerJeton("demo", "poste");
+    assert.deepEqual(await depot.verifierJeton(j), { projetId: "demo" });
+    const ji = await depot.creerJeton(null, "interface");
+    assert.deepEqual(await depot.verifierJeton(ji), { projetId: null });
+    assert.equal(await depot.verifierJeton("faux"), null);
+  });
+}
