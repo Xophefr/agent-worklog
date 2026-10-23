@@ -8,7 +8,8 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
+import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseJournal, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
+import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
@@ -428,4 +429,52 @@ test("accueil : nouveau projet (dossier créé, modèles, données) ou projet ex
   assert.equal(r5.status, 400);
   assert.match((await r5.json()).error, /n'existe pas/);
   assert.equal(loadRegistry(registry).projets.length, 3);
+});
+
+test("journal : consigne, entrées du tableau, ligne libre gardée", () => {
+  const md = `## Chantiers ouverts\n| CH-01 | x | en cours | a | — | — | 2026-01-01 |\n## Journal\n\nAjout seul, une ligne par session.\n\n| date | session | chantier | ce qui a bougé | commits | docs touchés |\n|---|---|---|---|---|---|\n| 2026-10-20 | s1 | CH-01 | OUVERT. Début | \`abc\` | — |\n| 2026-10-21 | s2 | tous | FERMÉ. Fin \\| suite | — | spec |\nune note libre\n`;
+  const j = parseJournal(md);
+  assert.equal(j.consigne, "Ajout seul, une ligne par session.");
+  assert.equal(j.entrees.length, 3);
+  assert.deepEqual(j.entrees[0], { date: "2026-10-20", session: "s1", chantiers: "CH-01", texte: "OUVERT. Début", commits: "`abc`", docs: "—" });
+  assert.equal(j.entrees[1].texte, "FERMÉ. Fin | suite");
+  assert.deepEqual(j.entrees[2], { brut: "une note libre" });
+  assert.deepEqual(parseJournal("## Chantiers ouverts\n"), { consigne: "", entrees: [] });
+});
+
+test("opérations : créer, modifier, clore, journal, lots", () => {
+  const d = build();
+  assert.equal(creerChantier(d, { titre: "Cache" }), "CH-03");
+  assert.equal(d.chantiers.find((c) => c.id === "CH-03").colonne, "pas_commence");
+  assert.throws(() => creerChantier(d, { id: "CH-01", titre: "x" }), /déjà pris/);
+  assert.throws(() => creerChantier(d, {}), /titre/);
+  modifierChantier(d, "CH-02", { etat: "en cours", note: "go" });
+  assert.equal(d.chantiers.find((c) => c.id === "CH-02").colonne, "en_cours");
+  assert.throws(() => modifierChantier(d, "CH-02", { colonne: "x" }), /non modifiable/);
+  assert.throws(() => modifierChantier(d, "CH-99", { note: "x" }), /inconnu/);
+  cloreChantier(d, "CH-02", { preuve: "commit abc", reste: "rien", le: "2026-10-23" });
+  const c2 = d.chantiers.find((c) => c.id === "CH-02");
+  assert.deepEqual([c2.colonne, c2.clos_le, c2.preuve], ["clos", "2026-10-23", "commit abc"]);
+  cloreChantier(d, "CH-03", { preuve: "—", reste: "—", le: "2026-10-23", abandon: true });
+  assert.equal(d.chantiers.find((c) => c.id === "CH-03").colonne, "abandonne");
+
+  assert.equal(creerTache(d, { chantier: "CH-01", titre: "Cache des listes" }), "API-04");
+  assert.equal(creerTache(d, { chantier: "CH-01", titre: "Écran", domaine: "UI" }), "UI-02");
+  const t = d.items.find((i) => i.id === "API-04");
+  assert.deepEqual([t.statut, t.priorite, t.chantier, t.decision], ["a_faire", "P2", "CH-01", false]);
+  assert.throws(() => creerTache(d, { chantier: "CH-77", titre: "x" }), /chantier inconnu/);
+  modifierTache(d, "API-01", { statut: "fait", attendu: "200" });
+  assert.equal(d.items.find((i) => i.id === "API-01").statut, "fait");
+  assert.throws(() => modifierTache(d, "API-01", { statut: "fini" }), /statut/);
+  assert.throws(() => modifierTache(d, "API-01", { suivi: "x" }), /non modifiable/);
+
+  ajouterJournal(d, { date: "2026-10-23", session: "s1", chantiers: "CH-01", texte: "OUVERT." });
+  assert.equal(d.journal.entrees.length, 1);
+
+  d.chantiers.find((c) => c.id === "CH-01").lots = [];
+  d.items.forEach((i) => { i.lot_spec = null; });
+  poserLots(d, [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }]);
+  assert.equal(d.chantiers.find((c) => c.id === "CH-01").lots.length, 2);
+  assert.equal(d.items.find((i) => i.id === "API-01").lot_spec, "1");
+  assert.equal(d.items.find((i) => i.id === "API-03").lot_spec, "2");
 });

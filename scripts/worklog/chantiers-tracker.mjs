@@ -157,6 +157,38 @@ export function parseChantiers(text) {
   return out;
 }
 
+// ---------- journal ----------
+// Cellules d'une ligne de tableau dont le texte peut contenir « \| » (barre échappée).
+const cellsEsc = (line) => line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replaceAll("\\|", "|"));
+
+/**
+ * Le journal en bas de CHANTIERS.md : le paragraphe de consigne, puis un tableau
+ * | date | session | chantier | ce qui a bougé | commits | docs |. Une ligne qui n'est pas une
+ * ligne du tableau est gardée telle quelle ({ brut }) : rien n'est jeté.
+ */
+export function parseJournal(text) {
+  const out = { consigne: "", entrees: [] };
+  const lines = text.split(/\r?\n/);
+  const k = lines.findIndex((l) => l.startsWith("## ") && fold(l.slice(3).trim()) === "journal");
+  if (k < 0) return out;
+  const consigne = [];
+  let table = false;
+  for (const line of lines.slice(k + 1)) {
+    if (!line.trim()) continue;
+    if (line.startsWith("## ")) break;
+    if (/^\|/.test(line)) {
+      if (!table) { table = true; continue; } // en-tête
+      if (/^\|[\s|:-]+\|?\s*$/.test(line)) continue; // séparateur
+      const c = cellsEsc(line);
+      if (c.length >= 6) out.entrees.push({ date: c[0], session: c[1], chantiers: c[2], texte: c[3], commits: c[4], docs: c[5] });
+      else out.entrees.push({ brut: line.trim() });
+    } else if (!table) consigne.push(line.trim());
+    else out.entrees.push({ brut: line.trim() });
+  }
+  out.consigne = consigne.join("\n");
+  return out;
+}
+
 // ---------- lots ----------
 /** La spec citée dans la colonne « doc » d'un chantier : <specs>/CH-xx_titre.md. */
 export const specRe = (specs = "docs/chantiers") => new RegExp(`${reEsc(String(specs).replace(/\/+$/, ""))}/(CH-\\d+[_.][^\`\\s)]*\\.md)`);
@@ -206,6 +238,19 @@ export function parseLots(specText) {
   return lots;
 }
 
+/**
+ * Pose sur le chantier `c` les lots de sa spec (`text`, ou rien) et, pour chacun, les tâches
+ * de `own` (ses tâches) que la ligne du lot nomme ; le préfixe par défaut est le domaine
+ * le plus fréquent de ses tâches (« (03-05) » se lit API-03 à API-05).
+ */
+export function rattacherLots(c, text, own) {
+  c.lots = text ? parseLots(text) : [];
+  const doms = own.map((i) => i.domaine);
+  const prefix = doms.sort((a, b) => doms.filter((d) => d === b).length - doms.filter((d) => d === a).length)[0] || "";
+  const mine = new Set(own.map((i) => i.id));
+  for (const lot of c.lots) lot.taches = lotIds(lot.texte, prefix).filter((t) => mine.has(t));
+}
+
 const specReader = (dir) => (name) => {
   const p = join(dir, name);
   return existsSync(p) ? readFileSync(p, "utf8") : null;
@@ -234,13 +279,7 @@ export function merge(old, chantiers, items, read = () => null, opts = {}) {
 
   for (const c of chantiers) {
     const m = String(c.doc || "").match(SPEC_RE);
-    const text = m ? read(m[1]) : null;
-    c.lots = text ? parseLots(text) : [];
-    const own = items.filter((i) => eff.get(i.id) === c.id);
-    const doms = own.map((i) => i.domaine);
-    const prefix = doms.sort((a, b) => doms.filter((d) => d === b).length - doms.filter((d) => d === a).length)[0] || "";
-    const mine = new Set(own.map((i) => i.id));
-    for (const lot of c.lots) lot.taches = lotIds(lot.texte, prefix).filter((t) => mine.has(t));
+    rattacherLots(c, m ? read(m[1]) : null, items.filter((i) => eff.get(i.id) === c.id));
   }
   for (const it of items) {
     const ch = chantiers.find((c) => c.id === eff.get(it.id));
