@@ -13,6 +13,7 @@ import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
 import { loadConfig } from "./config.mjs";
 import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
+import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -199,4 +200,31 @@ test("export Excel : archive zip lisible, CRC justes, texte échappé, en-tête 
   assert.match(s, /state="frozen"/);
   assert.match(s, /<autoFilter ref="A1:B3"\/>/);
   assert.match(files["xl/workbook.xml"], /<sheet name="Tâches"/);
+});
+
+test("registre : id, ajout, doublon, retrait, fichier cassé", (t) => {
+  const home = mkdtempSync(join(tmpdir(), "wl-home-"));
+  const p1 = mkdtempSync(join(tmpdir(), "wl-p1-"));
+  const p2 = mkdtempSync(join(tmpdir(), "wl-p2-"));
+  t.after(() => [home, p1, p2].forEach((d) => rmSync(d, { recursive: true, force: true })));
+  writeFileSync(join(p1, "tracker.config.json"), JSON.stringify({ projet: "Réplycite Pro" }));
+  const file = registryFile({ AGENT_WORKLOG_HOME: home });
+  assert.deepEqual(loadRegistry(file), { projets: [] });
+  assert.equal(slugId("Réplycite  Pro!"), "replycite-pro");
+  const reg = loadRegistry(file);
+  const e = addProject(reg, p1);
+  assert.equal(e.id, "replycite-pro");
+  assert.equal(e.type, "fichiers");
+  assert.equal(addProject(reg, p1.replaceAll("/", "\\") + "\\").id, "replycite-pro");
+  assert.equal(reg.projets.length, 1);
+  writeFileSync(join(p2, "tracker.config.json"), JSON.stringify({ projet: "Replycite pro" }));
+  assert.throws(() => addProject(reg, p2), /id déjà pris/);
+  assert.equal(addProject(reg, p2, { id: "autre" }).id, "autre");
+  assert.throws(() => addProject(reg, home), /pas de tracker.config.json/);
+  saveRegistry(file, reg);
+  assert.equal(loadRegistry(file).projets.length, 2);
+  assert.equal(removeProject(reg, "autre"), true);
+  assert.equal(removeProject(reg, "autre"), false);
+  writeFileSync(file, "{cassé");
+  assert.throws(() => loadRegistry(file), /illisible/);
 });
