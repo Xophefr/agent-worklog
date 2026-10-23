@@ -21,9 +21,9 @@
 //
 // `--suivi` va dans le champ `suivi` (date + session), jamais dans `note`, qui est au
 // propriétaire. `--chantier ID=CH-xx` rattache une tâche à un autre chantier : une tâche
-// déjà dans le JSON garde son rattachement, la section du backlog ne vaut que pour une
-// tâche NOUVELLE ou dont le rattachement est vide sans que le tableau l'ait vidé exprès
-// (`detache`, posé par l'enregistrement du tableau).
+// déjà dans le JSON garde son rattachement, la section du backlog (à défaut, le réglage
+// `rattachements`) ne vaut que pour une tâche NOUVELLE ou dont le rattachement est vide sans
+// que le tableau l'ait vidé exprès (`detache`, posé par l'enregistrement du tableau).
 //
 // Les LOTS d'un chantier sont la liste numérotée de la section « ## Découpage » de sa spec
 // (<specs>/CH-xx_*.md, citée dans la colonne « doc » de CHANTIERS.md). Une tâche y est
@@ -33,7 +33,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { at, CONFIG_FILE, findRoot, loadConfig } from "./config.mjs";
 
-const ID_RE = "[A-Z]{2,4}-\\d{2}";
+// Préfixe de 2 à 4 caractères, majuscules et chiffres, commençant par une lettre : API-01, I18N-04.
+const ID_RE = "[A-Z][A-Z0-9]{1,3}-\\d{2}";
 export const STATUTS = ["a_faire", "en_cours", "a_verifier", "fait", "abandonne"]; // = patch.mjs, save.php et app.js
 const BOUGE = new Set(["en_cours", "a_verifier", "fait"]);
 
@@ -51,6 +52,13 @@ export function marqueRe(marque = "DÉCISION") {
 }
 
 // ---------- backlog ----------
+// Une tâche s'écrit en ligne de tableau (le format documenté), ou bien en titre
+// « ### API-01 : titre `P1` », ou en paragraphe « **API-01** `P1` : texte ». La lecture
+// s'arrête au premier « ## Annexe » : une annexe cite des tâches, elle n'en déclare pas.
+const ROW_RE = new RegExp(`^\\|\\s*${ID_RE}\\s*\\|\\s*P\\d\\s*\\|`);
+const HEAD_RE = new RegExp(`^#{3,4} (${ID_RE}) : (.+?) \`(P\\d)\``);
+const PARA_RE = new RegExp(`^\\*\\*(${ID_RE})\\*\\* \`(P\\d)\` : (.+)$`);
+
 export function parseBacklog(text, marque = marqueRe()) {
   const items = [];
   const seen = new Set();
@@ -59,36 +67,52 @@ export function parseBacklog(text, marque = marqueRe()) {
   const lines = text.split(/\r?\n/);
   for (let n = 0; n < lines.length; n++) {
     const line = lines[n];
-    const h = line.match(/^##\s+(.+)$/);
-    if (h) {
-      section = clean(h[1]);
-      const ch = section.match(/^(CH-\d+)\b/);
-      chantier = ch ? ch[1] : null;
+    if (/^##\s+annexe\b/i.test(fold(line))) break;
+    const h = line.match(/^(#{2,3})\s+(.+)$/);
+    if (h && !HEAD_RE.test(line)) {
+      // Le rattachement vient d'une section « ## CH-xx » ; une sous-section ne fait que la préciser.
+      // « ### 4.17 Mémoire `MEM` » se lit « Mémoire » : ni numéro, ni code du domaine.
+      section = clean(h[2]).replace(/^[\d.]+\s+/, "").replace(/\s+`[A-Z0-9]+`$/, "");
+      if (h[1] === "##") { const ch = section.match(/^(CH-\d+)\b/); chantier = ch ? ch[1] : null; }
       continue;
     }
-    if (!new RegExp(`^\\|\\s*${ID_RE}\\s*\\|\\s*P\\d\\s*\\|`).test(line)) continue;
-    const c = cells(line);
-    if (seen.has(c[0])) continue;
-    seen.add(c[0]);
-    let titre = c[2] || "";
-    let constat = "";
-    const b = titre.match(/^\*\*(.+?)\*\*\s*(.*)$/); // « **Titre.** détail »
-    if (b) { titre = b[1].replace(/\.$/, ""); constat = b[2]; }
-    const attendu = c[3] || "";
+    let rec = null;
+    const t = line.match(HEAD_RE);
+    const p = !t && line.match(PARA_RE);
+    if (t) rec = { id: t[1], titre: t[2], priorite: t[3], constat: "", attendu: "" };
+    else if (p) rec = { id: p[1], titre: p[3], priorite: p[2], constat: p[3], attendu: "" };
+    else if (ROW_RE.test(line)) {
+      const c = cells(line);
+      // Le titre est coupé à 160 caractères : le constat garde la cellule entière.
+      rec = { id: c[0], titre: c[2] || "", priorite: c[1], constat: c[2] || "", attendu: c[3] || "" };
+      const b = rec.titre.match(/^\*\*(.+?)\*\*\s*(.*)$/); // « **Titre.** détail »
+      if (b) { rec.titre = b[1].replace(/\.$/, ""); rec.constat = b[2]; }
+    }
+    if (!rec || seen.has(rec.id)) continue;
+    seen.add(rec.id);
     items.push({
-      id: c[0],
-      titre: clean(titre).slice(0, 160),
-      priorite: c[1],
-      constat: clean(constat),
-      attendu: clean(attendu),
+      id: rec.id,
+      titre: clean(rec.titre).slice(0, 160),
+      priorite: rec.priorite,
+      constat: clean(rec.constat),
+      attendu: clean(rec.attendu),
       decision: marque.test(line),
-      domaine: c[0].split("-")[0],
+      domaine: rec.id.split("-")[0],
       section,
       ligne: n + 1,
       chantier_backlog: chantier,
     });
   }
   return items;
+}
+
+/** Rattachements par défaut du réglage : { "CH-04": "API-01 API-02" ou [...] } -> Map id -> chantier. */
+export function rattachementsParDefaut(cfg = {}) {
+  const out = new Map();
+  for (const [ch, ids] of Object.entries(cfg || {})) {
+    for (const id of Array.isArray(ids) ? ids : String(ids).split(/[\s,]+/)) if (id) out.set(id, ch);
+  }
+  return out;
 }
 
 // ---------- CHANTIERS.md ----------
@@ -166,7 +190,8 @@ export function parseLots(specText) {
     if (!m) continue;
     const body = m[2];
     const b = body.match(/^\*\*(.+?)\*\*/);
-    const titre = b ? clean(b[1]) : clean(body.replace(/\([^)]*\)/g, "").replace(/[*`]/g, "")).replace(/[ .,:;]+$/, "").slice(0, 70);
+    // Sans ses parenthèses, « Tooltip (MAR-02), puis » ne doit pas laisser « Tooltip , puis ».
+    const titre = b ? clean(b[1]) : clean(body.replace(/\([^)]*\)/g, "").replace(/[*`]/g, "")).replace(/\s+([,.])/g, "$1").replace(/[ .,:;]+$/, "").slice(0, 70);
     lots.push({ id: m[1], titre, texte: clean(body) });
   }
   return lots;
@@ -365,6 +390,9 @@ function main() {
   const old = existsSync(OUT_JSON) ? JSON.parse(readFileSync(OUT_JSON, "utf8")) : {};
   const chantiers = parseChantiers(readFileSync(CHANTIERS_MD, "utf8"));
   const items = parseBacklog(readFileSync(BACKLOG_MD, "utf8"), marqueRe(cfg.ui.marque));
+  // Backlog qui n'est pas rangé par chantier : le réglage `rattachements` donne le chantier par défaut.
+  const defauts = rattachementsParDefaut(cfg.rattachements);
+  for (const it of items) it.chantier_backlog ||= defauts.get(it.id) || null;
   // Le tableau lit son réglage dans le JSON : aucun fichier de plus à servir, et WAMP, le
   // serveur Node ou tout autre serveur statique affichent la même chose.
   const racine = posix(relative(TRACKER, ROOT));

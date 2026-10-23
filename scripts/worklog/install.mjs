@@ -13,7 +13,7 @@ import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
-const UI_FILES = ["index.html", "app.js", "style.css", "save.php", ".gitignore"];
+const UI_FILES = ["index.html", "app.js", "xlsx.js", "style.css", "save.php", ".gitignore"];
 const SCRIPTS = { chantiers: "node scripts/worklog/chantiers-tracker.mjs", tracker: "node scripts/worklog/serve.mjs", "code:stats": "node scripts/worklog/code-stats.mjs" };
 
 function main() {

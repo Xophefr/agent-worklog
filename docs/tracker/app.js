@@ -565,6 +565,52 @@
     render(); route();
   }
 
+  // ---------- export Excel ----------
+  // Tout le registre, pas seulement ce que les filtres montrent : chaque feuille porte un
+  // filtre automatique, on trie et filtre dans Excel. Le Markdown est rendu en texte brut.
+  const cellTxt = (s) => plain(s).replace(/<br\s*\/?>/gi, '\n').trim();
+  function exportXlsx() {
+    if (!data || !window.WorklogXlsx) return;
+    const C = (titre, largeur) => ({ titre, largeur });
+    const chantiers = [...data.chantiers].sort((a, b) => Number(!OPEN(a)) - Number(!OPEN(b))
+      || PRIOS.indexOf(a.priorite) - PRIOS.indexOf(b.priorite) || a.rang - b.rang);
+    const lotNom = (i) => {
+      const l = effLot(i);
+      const lot = l && i.chantier ? lotsOf(i.chantier).find((x) => x.id === l) : null;
+      return lot ? lotLabel(lot) : l ? `Lot ${l}` : '';
+    };
+    const sheets = [
+      {
+        nom: 'Chantiers',
+        colonnes: [C('ID', 9), C('Chantier', 36), C('État', 16), C('Priorité', 9), C('Rang', 7), C('Tâches faites', 12), C('Tâches', 9),
+          C('Avancement %', 13), C('Prochaine action', 60), C('Décisions en attente', 40), C('Doc de reprise', 32), C('MAJ / clos le', 13),
+          C('Preuve', 40), C('Ce qui en reste', 40), C('Note', 40)],
+        lignes: chantiers.map((c) => {
+          const n = progress(c.id);
+          return [c.id, cellTxt(c.titre), COLS[c.colonne] || c.colonne, c.priorite, OPEN(c) ? c.rang : null, n.base ? n.fait : null, n.base || null,
+            n.base ? n.pct : null, cellTxt(c.prochaine_action), c.decisions === '—' ? '' : cellTxt(c.decisions), cellTxt(c.doc),
+            c.clos_le || c.maj, cellTxt(c.preuve), cellTxt(c.reste), c.note];
+        }),
+      },
+      {
+        nom: 'Tâches',
+        colonnes: [C('ID', 9), C('Priorité', 9), C('Tâche', 40), C('Constat', 50), C('Statut', 12), C('Chantier', 10), C('Lot', 28), C(UI().marqueFiltre || 'Décision attendue', 12),
+          C('Attendu', 40), C('Suivi', 60), C('Note', 40), C('Domaine', 9), C('Section du backlog', 36), C('Ligne', 7)],
+        lignes: data.items.map((i) => [i.id, i.priorite, cellTxt(i.titre), i.constat !== i.titre ? cellTxt(i.constat) : '', STATUTS[i.statut] || i.statut, i.chantier || '', lotNom(i),
+          i.decision ? 'oui' : '', cellTxt(i.attendu), i.suivi, i.note, i.domaine, i.section, i.ligne]),
+      },
+    ];
+    const blob = new Blob([window.WorklogXlsx.workbook(sheets)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const slug = String((data.meta && data.meta.projet) || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `chantiers${slug ? '-' + slug : ''}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    setState(`Exporté : ${a.download} (${data.chantiers.length} chantiers, ${data.items.length} tâches)`, 'ok');
+  }
+
   // Nom du projet, couleur d'accent et mot de la decision viennent du reglage (meta.ui).
   function applyBrand() {
     const ui = UI();
@@ -573,6 +619,7 @@
     $('#appTitle').textContent = nom ? `Chantiers ${nom}` : 'Chantiers';
     $('#fDecisionLabel').textContent = ui.marqueFiltre || 'Décision attendue';
     const root = document.documentElement.style;
+    root.fontSize = Number(ui.echelle) > 0 ? `${Number(ui.echelle)}%` : '';  // taille du texte (style.css : 125 %)
     const dark = document.documentElement.dataset.theme === 'dark'
       || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
     const c = dark ? ui.accentSombre : ui.accent;
@@ -676,6 +723,7 @@
   window.addEventListener('hashchange', () => { if (location.hash) route(); else closeDrawer(); });
 
   $('#reloadBtn').addEventListener('click', load);
+  $('#exportBtn').addEventListener('click', exportXlsx);
   const applyTheme = (t) => {
     if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
     const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;

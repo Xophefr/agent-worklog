@@ -4,9 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseLots, specRe } from "./chantiers-tracker.mjs";
+import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
 import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
@@ -54,6 +55,27 @@ test("backlog : titre, chantier de la section, marque de décision sans accent",
   assert.equal(its[3].chantier_backlog, "CH-02");
   assert.ok(marqueRe("DÉCISION").test("Decision"));
   assert.ok(marqueRe("ARBITRAGE").test("[arbitrage]"));
+});
+
+test("backlog : tâche en titre ou en paragraphe, id à chiffres, annexe ignorée, rattachement du réglage", () => {
+  const its = parseBacklog(`## 4. Chantiers par domaine
+### 4.17 Mémoire \`MEM\`
+#### MEM-01 : écrire la mémoire \`P1\` [COUNCIL]
+**I18N-04** \`P2\` : traduire les pages, ${"long ".repeat(40)}fin
+| MEM-02 | P0 | ${"x".repeat(200)} | attendu |
+## Annexe A : revue
+| MEM-09 | P1 | citée seulement | — |`, marqueRe("[COUNCIL]"));
+  assert.deepEqual(its.map((i) => i.id), ["MEM-01", "I18N-04", "MEM-02"]);
+  assert.equal(its[0].titre, "écrire la mémoire");
+  assert.equal(its[0].decision, true);
+  assert.equal(its[1].decision, false);
+  assert.equal(its[0].section, "Mémoire");
+  assert.equal(its[1].domaine, "I18N");
+  assert.equal(its[2].titre.length, 160);
+  assert.equal(its[2].constat.length, 200);  // le texte entier n'est pas perdu
+  const d = rattachementsParDefaut({ "CH-07": "MEM-01 MEM-02", "CH-08": ["I18N-04"] });
+  assert.equal(d.get("MEM-02"), "CH-07");
+  assert.equal(d.get("I18N-04"), "CH-08");
 });
 
 test("lots lus dans la spec et rattachés", () => {
@@ -144,4 +166,27 @@ test("serveur : sert le tableau, écrit un patch, refuse le reste", async (t) =>
 
 test("AGENTS.md (Codex) est à jour avec le skill Claude Code", () => {
   assert.equal(readFileSync(AGENTS, "utf8"), agentsFromSkill(readFileSync(SKILL, "utf8")), "lancer npm run agents:sync");
+});
+
+test("export Excel : archive zip lisible, CRC justes, texte échappé, en-tête figé et filtré", () => {
+  const { workbook, crc32 } = createRequire(import.meta.url)("../../docs/tracker/xlsx.js");
+  assert.equal(crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
+  const bytes = workbook([{ nom: "Tâches", colonnes: [{ titre: "ID" }, { titre: "Rang" }], lignes: [["A<&>\u0001B", 3], ["", null]] }]);
+  const v = new DataView(bytes.buffer), dec = new TextDecoder();
+  const files = {};
+  for (let at = 0; v.getUint32(at, true) === 0x04034b50;) {
+    const size = v.getUint32(at + 18, true), n = v.getUint16(at + 26, true);
+    const name = dec.decode(bytes.subarray(at + 30, at + 30 + n)), data = bytes.subarray(at + 30 + n, at + 30 + n + size);
+    assert.equal(crc32(data), v.getUint32(at + 14, true), name);
+    files[name] = dec.decode(data);
+    at += 30 + n + size;
+  }
+  assert.deepEqual(Object.keys(files).sort(), ["[Content_Types].xml", "_rels/.rels", "xl/_rels/workbook.xml.rels", "xl/styles.xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml"]);
+  const s = files["xl/worksheets/sheet1.xml"];
+  assert.match(s, /<t xml:space="preserve">A&lt;&amp;&gt;B<\/t>/);
+  assert.match(s, /<c r="B2" s="2"><v>3<\/v><\/c>/);
+  assert.match(s, /<row r="3"><\/row>/);
+  assert.match(s, /state="frozen"/);
+  assert.match(s, /<autoFilter ref="A1:B3"\/>/);
+  assert.match(files["xl/workbook.xml"], /<sheet name="Tâches"/);
 });

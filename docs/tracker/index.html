@@ -21,6 +21,7 @@
   <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
 </svg>
 
@@ -31,6 +32,7 @@
   </div>
   <div class="top-actions">
     <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
+    <button class="icon-btn" id="exportBtn" type="button" aria-label="Exporter en Excel (.xlsx)" title="Exporter en Excel (.xlsx)"><svg aria-hidden="true"><use href="#i-download"/></svg></button>
     <button class="icon-btn" id="reloadBtn" type="button" aria-label="Recharger les données"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
     <button class="icon-btn" id="themeBtn" type="button" aria-label="Passer en thème sombre"><svg aria-hidden="true"><use href="#i-moon"/></svg></button>
   </div>
@@ -70,6 +72,7 @@
 </div>
 <div class="scrim" id="scrim" hidden></div>
 
+<script src="xlsx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

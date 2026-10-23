@@ -125,7 +125,9 @@ Relancer l'installation met donc l'outil à jour sans toucher aux données du pr
 | API-02 | P0 | **Pagination.** DÉCISION : curseur ou numéro de page | Test e2e vert |
 ```
 
-L'id est un préfixe de 2 à 4 lettres majuscules, un tiret et deux chiffres ; il ne se réutilise jamais. Le mot `DÉCISION` marque la tâche « décision attendue » sur le tableau.
+L'id est un préfixe de 2 à 4 majuscules (des chiffres sont admis après la première lettre : `I18N-04`), un tiret et deux chiffres ; il ne se réutilise jamais. Le mot `DÉCISION` marque la tâche « décision attendue » sur le tableau.
+
+Deux autres écritures sont lues, pour un backlog déjà rédigé autrement : la tâche en titre (`### API-03 : limite de débit \`P2\``, niveau 3 ou 4) et la tâche en paragraphe (`**API-04** \`P1\` : texte`). La lecture s'arrête à la première section `## Annexe…`. Un backlog qui n'est pas rangé en sections `## CH-xx` donne le chantier de ses tâches par la clé `rattachements` du [réglage](#réglage).
 
 **Les lots** (facultatifs) : la spec citée dans la colonne « doc de reprise » peut découper le chantier dans une section `## Découpage`. Chaque ligne numérotée est un lot et nomme ses tâches (`API-01, 02`, `API-03 à 05`). Le tableau regroupe alors les tâches par lot.
 
@@ -236,6 +238,8 @@ npm run chantiers -- --session api-pagination \
 
 Chaque chantier s'ouvre dans une fiche : état, prochaine action, décisions, liens vers ses docs, tâches groupées par lot, note du responsable. Le tableau relit le fichier toutes les 15 secondes : ce qu'un agent vient d'écrire apparaît sans recharger la page.
 
+**Export Excel** : le bouton de téléchargement, en haut à droite, enregistre un classeur `.xlsx` à deux feuilles, « Chantiers » (état, priorité, avancement, prochaine action, décisions, preuve, note) et « Tâches » (statut, chantier, lot, attendu, dernier suivi, note). Il porte tout le registre, quels que soient les filtres affichés : chaque feuille a son en-tête figé et un filtre automatique. Le fichier est écrit dans le navigateur, sans dépendance, et s'ouvre dans Excel, LibreOffice et Google Sheets.
+
 Accessibilité : navigation complète au clavier, fiche en boîte de dialogue modale, contrastes de 4,5:1 au moins dans les thèmes clair et sombre, tailles en `rem` (zoom à 200 %). Sur téléphone, les tâches passent en cartes.
 
 ### Deux façons de le servir
@@ -303,7 +307,9 @@ powershell -ExecutionPolicy Bypass -File scripts/worklog/install-code-stats-task
 | `specs` | `docs/chantiers` | dossier des specs (`CH-xx_*.md`) |
 | `tracker` | `docs/tracker` | dossier du tableau et de ses données |
 | `ui.accent` / `ui.accentSombre` | `#3538cd` / `#a4a6ff` | couleur d'accent, thème clair et sombre (viser 4,5:1 sur le fond) |
-| `ui.marque` | `DÉCISION` | mot qui marque une tâche « décision attendue » |
+| `ui.marque` | `DÉCISION` | mot qui marque une tâche « décision attendue » (accents et casse indifférents) |
+| `ui.echelle` | `125` | taille du texte du tableau, en % de celle du navigateur |
+| `rattachements` | — | chantier par défaut des tâches d'un backlog non rangé par chantier : `{ "CH-04": "API-01 API-02" }` (liste séparée par des espaces, ou tableau) ; ne vaut que pour une tâche nouvelle ou sans rattachement |
 | `ui.marqueFiltre` / `ui.marqueKpi` | `Décision attendue` / `décisions attendues` | libellés du filtre et de l'indicateur |
 | `serveur.port` | `4173` | port de `npm run tracker` |
 | `code.exclus` | `node_modules`, `dist`, `.git`… | dossiers jamais parcourus par le relevé |
@@ -336,7 +342,7 @@ agent-worklog/
 │   ├── chantiers/
 │   │   ├── backlog.md            modèle : backlog des tâches
 │   │   └── CH-01_exemple.md      modèle : spec d'un chantier, découpage en lots
-│   └── tracker/                  le tableau (HTML, CSS, JS sans dépendance) et save.php
+│   └── tracker/                  le tableau (HTML, CSS, JS sans dépendance, export xlsx.js) et save.php
 ├── scripts/worklog/
 │   ├── chantiers-tracker.mjs     npm run chantiers
 │   ├── serve.mjs                 npm run tracker
