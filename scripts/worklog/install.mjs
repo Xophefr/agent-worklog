@@ -15,8 +15,9 @@ import { addProject, loadRegistry, registryFile, saveRegistry } from "./registre
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
 const UI_FILES = ["index.html", "app.js", "xlsx.js", "style.css", "save.php", ".gitignore"];
-// Restent dans ce dépôt : l'installation, l'accueil multi-projets et ce qui ne sert qu'à eux.
-const OUTIL_SEUL = ["install.mjs", "sync-agents.mjs", "VERSION", "accueil.mjs", "registre.mjs", "resume.mjs"];
+// Restent dans ce dépôt : l'installation, l'accueil multi-projets, le BFF (et ses pilotes de base,
+// dans base/, jamais copié) et ce qui ne sert qu'à eux. Un projet suivi n'a aucune dépendance.
+const OUTIL_SEUL = ["install.mjs", "sync-agents.mjs", "VERSION", "accueil.mjs", "registre.mjs", "resume.mjs", "bff.mjs", "operations.mjs", "export-md.mjs"];
 const SCRIPTS = { chantiers: "node scripts/worklog/chantiers-tracker.mjs", tracker: "node scripts/worklog/serve.mjs", "code:stats": "node scripts/worklog/code-stats.mjs" };
 
 /**

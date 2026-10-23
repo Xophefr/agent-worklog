@@ -2,7 +2,7 @@
 // enregistrement du tableau (patch.mjs et serveur), relevé de code.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -346,6 +346,10 @@ test("install.mjs inscrit le projet à l'accueil, une seule fois", (t) => {
   assert.match(r2.stdout, /gardé\s+accueil : mon-projet/);
   const reg = loadRegistry(registryFile({ AGENT_WORKLOG_HOME: home }));
   assert.deepEqual(reg.projets.map((p) => p.id), ["mon-projet"]);
+  // Le BFF et ce qui ne sert qu'à lui restent dans agent-worklog : aucun projet n'a de dépendance.
+  for (const f of ["bff.mjs", "operations.mjs", "export-md.mjs", "accueil.mjs"]) assert.equal(existsSync(join(dir, "scripts", "worklog", f)), false, f);
+  assert.equal(existsSync(join(dir, "scripts", "worklog", "base")), false);
+  assert.equal(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).dependencies, undefined);
 });
 
 test("revue 1.4.0 : registre vide, fichiers en bac à sable, hôte local, chemin relatif refusé", async (t) => {

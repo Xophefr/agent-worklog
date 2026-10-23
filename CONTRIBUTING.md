@@ -37,7 +37,7 @@ Une PR courte, centrée sur un seul sujet, se relit et se fusionne plus vite.
 
 ## Règles du projet
 
-- **Aucune dépendance npm.** L'outil tourne avec Node.js 20 ou plus, sans `node_modules`. Une PR qui ajoute une dépendance sera refusée, sauf discussion préalable dans une issue.
+- **Aucune dépendance npm, sauf les pilotes de base du BFF.** L'outil tourne avec Node.js 20 ou plus. Seul le BFF du mode base (`scripts/worklog/bff.mjs`, `scripts/worklog/base/`) dépend de `pg` et `mysql2`, installés dans ce dépôt par `npm install` ; rien de cela ne part dans un projet suivi, qui reste sans `node_modules`. Une PR qui ajoute une autre dépendance sera refusée, sauf discussion préalable dans une issue.
 - **Le tableau reste accessible** : navigation au clavier, contrastes de 4,5:1 au moins dans les deux thèmes, tailles en `rem`.
 - **Le serveur reste local** : pas d'écoute hors de `127.0.0.1`, pas d'affaiblissement des contrôles décrits dans la section Sécurité du README.
 - **Les formats Markdown sont un contrat** : un changement dans la lecture de `CHANTIERS.md`, du backlog ou des specs doit rester compatible avec les fichiers existants, ou être signalé clairement dans la PR.
