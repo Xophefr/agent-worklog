@@ -10,6 +10,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFi
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
+import { addProject, loadRegistry, registryFile, saveRegistry } from "./registre.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
@@ -79,7 +80,18 @@ function main() {
   log(ajoutes.length ? "complété" : "gardé", pkgPath);
   if (conflit.length) console.log(`  ATTENTION : commande(s) npm déjà prises par le projet : ${conflit.join(", ")} ; lancer alors ${conflit.map((k) => SCRIPTS[k]).join(" / ")}`);
 
-  console.log(`\nSuite, dans ${dest} :\n  npm run chantiers      # construit ${relative(dest, join(ui, "chantiers.json")).replaceAll("\\", "/")}\n  npm run tracker        # ouvre le tableau sur http://localhost:${cfg.serveur.port}/\n  npm run code:stats     # premier relevé de l'onglet « Code » (régler code.groupes dans ${CONFIG_FILE})`);
+  // 5. Accueil multi-projets : le projet y est inscrit (une seule fois). Un refus (id déjà pris…)
+  // n'empêche pas l'installation : il se règle avec `accueil.mjs ajouter <dossier> --id <id>`.
+  try {
+    const file = registryFile();
+    const reg = loadRegistry(file);
+    const n = reg.projets.length;
+    const p = addProject(reg, dest);
+    if (reg.projets.length > n) { saveRegistry(file, reg); console.log(`  inscrit   accueil : ${p.id}`); }
+    else console.log(`  gardé     accueil : ${p.id}`);
+  } catch (e) { console.log(`  ATTENTION : non inscrit à l'accueil (${e.message})`); }
+
+  console.log(`\nSuite, dans ${dest} :\n  npm run chantiers      # construit ${relative(dest, join(ui, "chantiers.json")).replaceAll("\\", "/")}\n  npm run tracker        # ouvre le tableau sur http://localhost:${cfg.serveur.port}/\n  npm run code:stats     # premier relevé de l'onglet « Code » (régler code.groupes dans ${CONFIG_FILE})\n\nTous les projets inscrits, depuis ce dépôt :\n  npm run accueil        # http://localhost:4170/`);
   return 0;
 }
 

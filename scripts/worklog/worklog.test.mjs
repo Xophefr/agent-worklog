@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
@@ -328,4 +329,21 @@ test("accueil : liste, sert un projet, écrit dans le bon, refuse le reste", asy
   assert.equal(casse.status, 500);
   assert.equal((await casse.json()).ok, false);
   assert.equal(readFileSync(registry, "utf8"), "{x");
+});
+
+test("install.mjs inscrit le projet à l'accueil, une seule fois", (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-inst-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const dir = join(tmp, "Mon Projet");
+  mkdirSync(dir);
+  const home = join(tmp, "home");
+  const run = () => spawnSync(process.execPath, [join(ROOT, "scripts", "worklog", "install.mjs"), dir], { env: { ...process.env, AGENT_WORKLOG_HOME: home }, encoding: "utf8" });
+  const r1 = run();
+  assert.equal(r1.status, 0, r1.stderr);
+  assert.match(r1.stdout, /inscrit\s+accueil : mon-projet/);
+  const r2 = run();
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.match(r2.stdout, /gardé\s+accueil : mon-projet/);
+  const reg = loadRegistry(registryFile({ AGENT_WORKLOG_HOME: home }));
+  assert.deepEqual(reg.projets.map((p) => p.id), ["mon-projet"]);
 });
