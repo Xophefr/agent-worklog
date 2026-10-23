@@ -27,6 +27,7 @@
 
 <header class="top">
   <div class="brand">
+    <nav class="crumbs" id="crumbs" aria-label="Projets" hidden></nav>
     <h1 id="appTitle">Chantiers</h1>
     <p class="sub" id="syncInfo">Chargement…</p>
   </div>
@@ -50,6 +51,7 @@
 </nav>
 
 <div class="filters" id="filters" role="search" aria-label="Filtres">
+  <button type="button" class="filters-btn" id="filtersBtn" aria-expanded="false">Filtres<span id="filtersN"></span></button>
   <label class="search"><svg aria-hidden="true"><use href="#i-search"/></svg><span class="sr">Rechercher</span>
     <input type="search" id="q" placeholder="Rechercher (id, titre, texte)…"></label>
   <label>Priorité <select id="fPrio"><option value="">Toutes</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></label>

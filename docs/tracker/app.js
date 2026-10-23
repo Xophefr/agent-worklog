@@ -175,6 +175,7 @@
   const PAR_COL = 30;
   const colsOuvertes = new Set();  // colonnes depliees (memoire de la page seulement)
   const bouges = [];               // taches deplacees dans cette page, la derniere en tete
+  let colTel = store.get('colTel', 'en_cours');  // telephone : la colonne affichee (une a la fois)
   const suiviJour = (i) => (/^\d{4}-\d{2}-\d{2}/.exec(i.suivi || '') || [''])[0];
   function renderBoard() {
     const list = data.items.filter(itMatch);
@@ -183,12 +184,16 @@
     const ord = (col) => (a, b) => (rec(a) - rec(b) || 0)
       || (col === 'fait' ? suiviJour(b).localeCompare(suiviJour(a)) : 0) || byPrio(a, b);
     const ab = list.filter((i) => i.statut === 'abandonne').length;
+    const nb = (col) => list.filter((i) => i.statut === col).length;
+    // Telephone : une colonne a la fois, choisie ici (les quatre empilees faisaient defiler 30 cartes avant la suivante).
+    const pick = `<div class="col-pick" role="group" aria-label="Colonne affichée">${BOARD.map((col) =>
+      `<button type="button" data-pick="${col}" aria-pressed="${col === colTel}">${STATUTS[col]} <span class="mono">${nb(col)}</span></button>`).join('')}</div>`;
     return `<p class="count" role="status">${list.length - ab} tâche(s)${ab ? `, sans les ${ab} abandonnée(s) (onglet Tâches)` : ''}. Changer le statut : glisser la carte dans une autre colonne, ou choisir dans sa liste.</p>
-      <div class="board">${BOARD.map((col) => {
+      ${pick}<div class="board">${BOARD.map((col) => {
       const all = list.filter((i) => i.statut === col).sort(ord(col));
       const cs = colsOuvertes.has(col) ? all : all.slice(0, PAR_COL);
       const reste = all.length - cs.length;
-      return `<section class="col" data-statut="${col}" aria-labelledby="c-${col}"><h2 id="c-${col}"><span>${STATUTS[col]}</span><span>${all.length}</span></h2>${cs.map((i) => `<article class="card ${esc(i.priorite)}" data-item="${esc(i.id)}" draggable="true">
+      return `<section class="col${col === colTel ? ' on' : ''}" data-statut="${col}" aria-labelledby="c-${col}"><h2 id="c-${col}"><span>${STATUTS[col]}</span><span>${all.length}</span></h2>${cs.map((i) => `<article class="card ${esc(i.priorite)}" data-item="${esc(i.id)}" draggable="true">
           <div class="meta"><span class="mono">${esc(i.id)}</span>${prio(i.priorite)}${i.decision ? pill('decision', UI().marque || 'DÉCISION', 'attend') : ''}${i.chantier ? `<a href="#${esc(i.chantier)}" class="mono ch"><span class="sr">chantier </span>${esc(i.chantier)}</a>` : ''}</div>
           <a href="#item/${esc(i.id)}"><span class="sr">${esc(i.id)} : </span>${esc(plain(i.titre))}</a>
           <select data-f="statut" aria-label="Statut de ${esc(i.id)}">${options(STATUTS, i.statut)}</select></article>`).join('')}
@@ -574,6 +579,7 @@
       data.chantiers.filter((c) => (c.lots || []).length).map((c) => `<optgroup label="${esc(c.id)} ${esc(plain(c.titre).slice(0, 36))}">${
         c.lots.map((l) => `<option value="${esc(c.id)}|${esc(l.id)}">${esc(c.id)} · ${esc(lotLabel(l).slice(0, 50))}</option>`).join('')}</optgroup>`).join('');
     restoreFilters();
+    filtersCount();
     snapshot();
     clearInterval(pollTimer);
     pollTimer = setInterval(poll, 15000);
@@ -634,6 +640,17 @@
     document.title = nom ? `Chantiers · ${nom}` : 'Chantiers';
     $('#appTitle').textContent = nom ? `Chantiers ${nom}` : 'Chantiers';
     $('#fDecisionLabel').textContent = ui.marqueFiltre || 'Décision attendue';
+    // Servi par l'accueil (npm run accueil) : retour aux projets et passage a un autre projet.
+    const acc = data.meta && data.meta.accueil;
+    const crumbs = $('#crumbs');
+    if (acc && !crumbs.childElementCount) {
+      const cur = (location.pathname.match(/\/p\/([^/]+)\//) || [])[1];
+      crumbs.innerHTML = `<a href="${esc(acc.url)}">← Mes projets</a>` + (acc.projets.length > 1
+        ? `<label>Projet <select id="projSel">${acc.projets.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.nom)}</option>`).join('')}</select></label>` : '');
+      const sel = $('#projSel');
+      if (sel) sel.addEventListener('change', () => { location.href = `/p/${encodeURIComponent(sel.value)}/`; });
+      crumbs.hidden = false;
+    }
     const root = document.documentElement.style;
     root.fontSize = Number(ui.echelle) > 0 ? `${Number(ui.echelle)}%` : '';  // taille du texte (style.css : 125 %)
     const dark = document.documentElement.dataset.theme === 'dark'
@@ -648,7 +665,17 @@
     if (!b) return;
     view = b.dataset.view; store.set('view', view); render();
   });
-  Object.values(F).forEach((el) => el.addEventListener('input', () => { saveFilters(); render(); }));
+  Object.values(F).forEach((el) => el.addEventListener('input', () => { saveFilters(); filtersCount(); render(); }));
+  // Telephone : les filtres se replient ; le bouton dit combien sont actifs (hors recherche, toujours visible).
+  function filtersCount() {
+    const n = Object.entries(F).filter(([k, el]) => k !== 'q' && (el.type === 'checkbox' ? el.checked : el.value)).length;
+    $('#filtersN').textContent = n ? String(n) : '';
+    $('#filtersBtn').setAttribute('aria-label', n ? `Filtres, ${n} actif(s)` : 'Filtres');
+  }
+  $('#filtersBtn').addEventListener('click', (e) => {
+    const open = $('#filters').classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
 
   const main = $('#view');
   main.addEventListener('click', (e) => {
@@ -660,6 +687,8 @@
       const again = $(`button[data-sort="${sort.k}"]`); if (again) again.focus();
       return;
     }
+    const pk = e.target.closest('button[data-pick]');
+    if (pk) { colTel = pk.dataset.pick; store.set('colTel', colTel); render(); const b = $(`[data-pick="${colTel}"]`); if (b) b.focus(); return; }
     const more = e.target.closest('button[data-more]');
     if (more) {
       const col = more.dataset.more;
