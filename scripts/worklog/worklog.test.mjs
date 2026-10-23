@@ -13,6 +13,7 @@ import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
 import { loadConfig } from "./config.mjs";
 import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
+import { summarize } from "./resume.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -227,4 +228,27 @@ test("registre : id, ajout, doublon, retrait, fichier cassé", (t) => {
   assert.equal(removeProject(reg, "autre"), false);
   writeFileSync(file, "{cassé");
   assert.throws(() => loadRegistry(file), /illisible/);
+});
+
+test("résumé d'un projet : avancement, décisions, activité des 7 derniers jours, version", () => {
+  const d = build();
+  const it = (id) => d.items.find((i) => i.id === id);
+  Object.assign(it("API-01"), { statut: "fait", suivi: "2026-10-20 · s1 · fait" });
+  Object.assign(it("API-03"), { statut: "abandonne", suivi: "2026-10-01 · s0 · abandonne" });
+  delete it("UI-01").decision;
+  const r = summarize(d, { today: "2026-10-23", version: "1.3.0", outil: "1.4.0" });
+  assert.equal(r.nom, "Démo");
+  assert.equal(r.taches.base, 3);
+  assert.equal(r.taches.fait, 1);
+  assert.equal(r.taches.pct, 33);
+  assert.equal(r.decisions, 1);
+  assert.equal(r.chantiers.ouverts, 2);
+  assert.equal(r.chantiers.en_cours, 1);
+  assert.equal(r.bouges7j, 1);
+  assert.equal(r.derniere, "2026-10-20");
+  assert.equal(r.aJour, false);
+  assert.equal(summarize(d, { today: "2026-10-27", version: "1.4.0", outil: "1.4.0" }).bouges7j, 0);
+  const vide = summarize({ meta: {}, chantiers: [], items: [] }, { today: "2026-10-23", version: null, outil: "1.4.0" });
+  assert.equal(vide.taches.pct, 0);
+  assert.equal(vide.derniere, null);
 });
