@@ -39,7 +39,8 @@ export const STATUTS = ["a_faire", "en_cours", "a_verifier", "fait", "abandonne"
 const BOUGE = new Set(["en_cours", "a_verifier", "fait"]);
 
 const clean = (t) => String(t).replace(/\s+/g, " ").trim();
-const cells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+// Cellules d'une ligne de tableau ; « \| » est une barre dans le texte, pas un séparateur.
+const cells = (line) => line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replaceAll("\\|", "|"));
 const reEsc = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Minuscules sans accents : « Terminé », « terminé » et « termine » se lisent pareil. */
 export const fold = (t) => String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -158,9 +159,6 @@ export function parseChantiers(text) {
 }
 
 // ---------- journal ----------
-// Cellules d'une ligne de tableau dont le texte peut contenir « \| » (barre échappée).
-const cellsEsc = (line) => line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replaceAll("\\|", "|"));
-
 /**
  * Le journal en bas de CHANTIERS.md : le paragraphe de consigne, puis un tableau
  * | date | session | chantier | ce qui a bougé | commits | docs |. Une ligne qui n'est pas une
@@ -179,7 +177,7 @@ export function parseJournal(text) {
     if (/^\|/.test(line)) {
       if (!table) { table = true; continue; } // en-tête
       if (/^\|[\s|:-]+\|?\s*$/.test(line)) continue; // séparateur
-      const c = cellsEsc(line);
+      const c = cells(line);
       if (c.length >= 6) out.entrees.push({ date: c[0], session: c[1], chantiers: c[2], texte: c[3], commits: c[4], docs: c[5] });
       else out.entrees.push({ brut: line.trim() });
     } else if (!table) consigne.push(line.trim());

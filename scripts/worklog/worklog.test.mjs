@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseJournal, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
+import { exportMd } from "./export-md.mjs";
 import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
@@ -477,4 +478,27 @@ test("opérations : créer, modifier, clore, journal, lots", () => {
   assert.equal(d.chantiers.find((c) => c.id === "CH-01").lots.length, 2);
   assert.equal(d.items.find((i) => i.id === "API-01").lot_spec, "1");
   assert.equal(d.items.find((i) => i.id === "API-03").lot_spec, "2");
+});
+
+test("export Markdown : relu par le mode fichiers sans perte", () => {
+  const d = build();
+  cloreChantier(d, "CH-02", { preuve: "—", reste: "—", le: "2026-10-23", abandon: true });
+  creerTache(d, { chantier: "CH-01", titre: "Barre | dans le titre", constat: "ligne 1\nligne 2", attendu: "a | b", decision: true });
+  creerTache(d, { titre: "Orpheline", domaine: "DOC" });
+  ajouterJournal(d, { date: "2026-10-23", session: "s1", chantiers: "CH-01", texte: "OUVERT. a | b" });
+  d.journal.consigne = "Ajout seul.";
+  const md = exportMd(d);
+  const relu = merge({}, parseChantiers(md.chantiers), parseBacklog(md.backlog), () => null, {});
+  const cle = (x) => [x.id, x.titre, x.colonne].join("~");
+  assert.deepEqual(relu.chantiers.map(cle).sort(), d.chantiers.map((c) => cle({ ...c, titre: c.colonne === "abandonne" ? relu.chantiers.find((r) => r.id === c.id).titre : c.titre })).sort());
+  assert.match(relu.chantiers.find((c) => c.id === "CH-02").titre, /ABANDONN/);
+  for (const t of d.items) {
+    const r = relu.items.find((i) => i.id === t.id);
+    assert.ok(r, t.id);
+    assert.deepEqual([r.titre, r.chantier, r.priorite, r.decision], [t.titre, t.chantier, t.priorite, t.decision], t.id);
+  }
+  assert.equal(relu.items.find((i) => i.id === "API-04").attendu, "a | b");
+  const j = parseJournal(md.chantiers);
+  assert.equal(j.consigne, "Ajout seul.");
+  assert.equal(j.entrees[0].texte, "OUVERT. a | b");
 });
