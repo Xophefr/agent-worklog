@@ -75,6 +75,20 @@ Relancer l'installation met donc l'outil à jour sans toucher aux données du pr
 
 À commiter dans le projet : les trois fichiers Markdown, les specs **et** `docs/tracker/chantiers.json`, qui porte les statuts, les priorités et les notes. `code_stats.json` reste local (déjà dans `docs/tracker/.gitignore`).
 
+### Mettre à jour
+
+L'outil installé dans un projet est une copie : il ne change que quand on relance l'installation. Le projet garde sa version dans `scripts/worklog/VERSION`.
+
+```bash
+cd agent-worklog
+git pull                                         # la dernière version de l'outil
+node scripts/worklog/install.mjs ../mon-projet   # affiche « agent-worklog 1.0.0 -> 1.1.0 »
+cd ../mon-projet
+npm run chantiers -- --check                     # relit les Markdown avec la nouvelle version, n'écrit rien
+```
+
+Ce qui change d'une version à l'autre, et ce qu'il faut éventuellement adapter dans le projet, est écrit dans [`CHANGELOG.md`](CHANGELOG.md). Pour être prévenu d'une nouvelle version : sur la page GitHub du dépôt, **Watch → Custom → Releases** ; chaque version y est publiée avec ses notes.
+
 ---
 
 ## Fonctionnement
@@ -357,7 +371,8 @@ agent-worklog/
 ├── integrations/
 │   ├── claude-code/              skill et bloc CLAUDE.md
 │   └── codex/                    bloc AGENTS.md
-└── tracker.config.json
+├── tracker.config.json
+└── CHANGELOG.md                  nouveautés de chaque version
 ```
 
 ## Licence

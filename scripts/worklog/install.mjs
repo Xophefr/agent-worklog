@@ -41,7 +41,13 @@ function main() {
   for (const f of UI_FILES) { copyFileSync(join(SRC, "docs", "tracker", f), join(ui, f)); log("copié", join(ui, f)); }
   const sd = join(dest, "scripts", "worklog");
   mkdirSync(sd, { recursive: true });
-  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !["install.mjs", "sync-agents.mjs"].includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
+  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !["install.mjs", "sync-agents.mjs", "VERSION"].includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
+  // La version installée reste dans le projet : on sait d'où l'on part à la mise à jour suivante.
+  const version = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
+  const vFile = join(sd, "VERSION");
+  const avant = existsSync(vFile) ? readFileSync(vFile, "utf8").trim() : null;
+  writeFileSync(vFile, version + "\n", "utf8");
+  console.log(`  agent-worklog ${avant && avant !== version ? `${avant} -> ${version} (voir CHANGELOG.md)` : version}`);
 
   // 3. Docs du projet : modèles posés seulement dans un projet NEUF (ni registre ni backlog). Un
   // projet qui a déjà ses docs règle d'abord leurs chemins dans tracker.config.json : sans cela,
