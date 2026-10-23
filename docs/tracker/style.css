@@ -104,12 +104,15 @@ a { color: var(--accent); text-underline-offset: .15em; }
 .tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 700; }
 .tabs button:hover { color: var(--text); }
 
-.filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; padding: .75rem 1.5rem; max-width: 100rem; margin: 0 auto; font-size: .875rem; color: var(--muted); }
-.filters label { display: inline-flex; align-items: center; gap: .375rem; }
-.filters select, .filters input[type="search"] { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-s); padding: .375rem .5rem; min-height: 2.75rem; color: var(--text); max-width: 100%; }
-.filters .search { position: relative; }
-.filters .search svg { position: absolute; left: .5625rem; color: var(--muted); width: 1rem; height: 1rem; }
-.filters .search input { padding-left: 1.875rem; width: 18rem; max-width: 80vw; }
+/* Filtres : une grille régulière, chaque libellé au-dessus de sa liste ; recherche, chantier et lot sur deux colonnes. */
+.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr)); grid-auto-flow: row dense; gap: .75rem 1rem; align-items: end; padding: .75rem 1.5rem; max-width: 100rem; margin: 0 auto; font-size: .875rem; color: var(--muted); }
+.filters label { display: flex; flex-direction: column; gap: .25rem; min-width: 0; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.filters .large, .filters .search { grid-column: span 2; }
+.filters select, .filters input[type="search"] { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-s); padding: .375rem .5rem; min-height: 2.75rem; color: var(--text); font-size: .875rem; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.filters .search { position: relative; display: block; }
+.filters .search svg { position: absolute; left: .625rem; bottom: .875rem; color: var(--muted); width: 1rem; height: 1rem; }
+.filters .search input { padding-left: 2rem; }
+.filters .chk { flex-direction: row; align-items: center; gap: .5rem; min-height: 2.75rem; font-size: .875rem; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text); }
 .filters .chk input { width: 1.125rem; height: 1.125rem; accent-color: var(--accent); }
 /* Tâches et Tableau (kanban des tâches) portent les filtres de tâches ; les autres vues, ceux des chantiers. */
 body:is([data-view="items"], [data-view="board"]) .only-ch, body:not([data-view="items"]):not([data-view="board"]) .only-items { display: none; }
@@ -121,9 +124,10 @@ body[data-view="code"] .filters { display: none; }
   .filters-btn { display: inline-flex; align-items: center; gap: .375rem; min-height: 2.75rem; padding: 0 .875rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; order: 2; }
   .filters-btn[aria-expanded="true"] { border-color: var(--accent); }
   .filters-btn span:not(:empty) { font: 600 .75rem var(--mono); background: var(--accent); color: var(--surface); border-radius: 99px; padding: 0 .4rem; }
-  .filters .search { order: 1; }
+  .filters { grid-template-columns: minmax(0, 1fr) auto; }
+  .filters .search { order: 1; grid-column: 1; }
   .filters:not(.open) label:not(.search) { display: none !important; }
-  .filters label:not(.search) { order: 3; }
+  .filters label:not(.search) { order: 3; grid-column: 1 / -1; }
 }
 
 main { max-width: 100rem; margin: 0 auto; padding: .25rem 1.5rem 3rem; }
@@ -141,6 +145,8 @@ main { max-width: 100rem; margin: 0 auto; padding: .25rem 1.5rem 3rem; }
 .row .title a { display: block; font-weight: 500; color: var(--text); text-decoration: none; line-height: 1.35; }
 .row .title a:hover { text-decoration: underline; }
 .row .title small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--muted); font-size: .8125rem; line-height: 1.4; margin-top: .125rem; }
+/* Écran large : l'état et l'avancement sont deux colonnes de la ligne. */
+.row .row-meta { display: contents; }
 .row .moves { display: flex; gap: .125rem; justify-content: flex-end; }
 .row .moves button { width: 2.75rem; height: 2.75rem; border: 1px solid var(--border); border-radius: .375rem; background: var(--surface); cursor: pointer; display: grid; place-items: center; }
 .row .moves button:disabled { opacity: .35; cursor: default; }
@@ -244,14 +250,19 @@ textarea { width: 100%; min-height: 6rem; resize: vertical; }
 
 /* Les requêtes média sont en em du réglage du navigateur (16 px par défaut) : 80em = 1280 px. */
 @media (max-width: 80em) {
-  .row { grid-template-columns: 1.25rem 4rem 3.25rem minmax(0, 1fr) 5.5rem; }
-  .row .etat, .row .prog { display: none; }
+  /* L'état et l'avancement passent sous le titre (ils étaient masqués : l'avancement ne se voyait plus). */
+  .row { grid-template-columns: 1.25rem 4rem 3.25rem minmax(0, 1fr) 5.75rem; }
+  .row:not(.done) > :not(.title):not(.row-meta) { grid-row: 1 / span 2; }
+  .row .title { grid-column: 4; grid-row: 1; }
+  .row .row-meta { grid-column: 4; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .875rem; }
+  .row .row-meta .prog { flex: 0 1 16rem; }
 }
 @media (max-width: 56em) {
   .top, .kpis, .tabs, .filters, main { padding-left: 1rem; padding-right: 1rem; }
   .top { flex-wrap: wrap; }
-  .row { grid-template-columns: 3.5rem minmax(0, 1fr) 5.5rem; }
+  .row { grid-template-columns: 3.5rem minmax(0, 1fr) 5.75rem; }
   .row .grip, .row .prio-cell { display: none; }
+  .row .title, .row .row-meta { grid-column: 2; }
   /* Indicateurs deux par ligne : un par ligne remplissait l'écran avant la moindre tâche. */
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
   .kpi { padding: .625rem .75rem; }
@@ -261,7 +272,6 @@ textarea { width: 100%; min-height: 6rem; resize: vertical; }
   .mini li { grid-template-columns: 4rem minmax(0, 1fr); }
   .mini li .pill { display: none; }
   .mini li select { grid-column: 1 / -1; }
-  .filters .search, .filters .search input { flex: 1 1 100%; width: 100%; }
 }
 /* Onglet Taches sur ecran etroit : chaque ligne devient une carte. Le tableau entier
    (sept colonnes, quatre listes) ne tient qu'au-dela de 80em ; en dessous, la page
@@ -304,9 +314,6 @@ textarea { width: 100%; min-height: 6rem; resize: vertical; }
   /* Onglets : tous visibles, sur deux lignes s'il le faut (une barre qui défile cachait les derniers). */
   .tabs { flex-wrap: wrap; overflow-x: visible; }
   .tabs button { padding: .5rem .625rem; }
-  /* Filtres : chaque liste prend la largeur, ses libellés longs ne l'élargissent plus. */
-  .filters label:not(.chk) { flex: 1 1 100%; min-width: 0; }
-  .filters label:not(.chk) select { flex: 1; min-width: 0; width: 100%; }
   .row.done { grid-template-columns: 3.5rem minmax(0, 1fr); }
   .row.done > :nth-child(n+3) { grid-column: 2; }
   /* Code : deux colonnes de détail masquées, le reste tient sans défilement. */
@@ -357,6 +364,12 @@ a.proj-body:hover h2 { text-decoration: underline; text-underline-offset: .15em;
 .proj.add input { width: 100%; min-height: 2.75rem; padding: .375rem .625rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); font-family: var(--mono); font-size: .875rem; }
 .proj.add .muted { font-size: .8125rem; margin: .375rem 0 .5rem; }
 .row-btns { display: flex; gap: .5rem; flex-wrap: wrap; }
+.proj.add .modes { border: 0; padding: 0; margin: 0 0 .75rem; display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.proj.add .modes legend { font-weight: 600; margin-bottom: .25rem; padding: 0; }
+.proj.add .radio { display: inline-flex; align-items: center; gap: .375rem; min-height: 2.75rem; font-weight: 400; margin: 0; cursor: pointer; }
+.proj.add .radio input { width: 1.125rem; height: 1.125rem; min-height: 0; accent-color: var(--accent); }
+.proj.add input + label { margin-top: .75rem; }
+.proj.add #addNom { font-family: var(--sans); font-size: .9375rem; }
 
 html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

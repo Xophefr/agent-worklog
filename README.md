@@ -264,7 +264,12 @@ Sur téléphone, les indicateurs passent deux par ligne, les filtres se replient
 
 Depuis ce dépôt, `npm run accueil` ouvre `http://localhost:4170/` : une carte par projet suivi, avec le pourcentage de tâches faites, les chantiers en cours, les tâches à vérifier, les décisions qui vous attendent et les tâches bougées dans les 7 derniers jours. Un clic sur la carte ouvre le tableau du projet, à l'adresse `/p/<id>/`, avec un lien « Mes projets » et une liste pour passer à un autre projet.
 
-Les projets sont inscrits dans un fichier personnel, hors de tout dépôt : `~/.agent-worklog/projets.json`. `install.mjs` y inscrit le projet qu'il installe ; on peut aussi inscrire un dossier depuis la carte « Ajouter un projet », ou en ligne de commande :
+Les projets sont inscrits dans un fichier personnel, hors de tout dépôt : `~/.agent-worklog/projets.json`. `install.mjs` y inscrit le projet qu'il installe. La carte « Ajouter un projet » propose deux cas :
+
+- **Nouveau projet** : un nom et un dossier (créé s'il n'existe pas). Le suivi y est installé avec ses modèles à remplir (registre, backlog, spec d'exemple), et le tableau est prêt aussitôt.
+- **Projet existant** : un dossier déjà suivi (il a son `tracker.config.json`) est seulement ajouté, rien n'y est écrit ; un dossier de code qui ne l'est pas encore reçoit le suivi, sans qu'aucun de ses fichiers soit remplacé.
+
+En ligne de commande :
 
 ```bash
 node scripts/worklog/accueil.mjs ajouter ../mon-projet [--id mon-id]

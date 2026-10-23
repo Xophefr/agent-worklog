@@ -20,6 +20,8 @@
   let aRetirer = null;      // id dont la confirmation de retrait est ouverte
   let ajoutOuvert = false;
   let ajoutErreur = '';
+  let ajoutMode = 'nouveau';  // 'nouveau' : projet parti de zero ; 'existant' : reprise d'un dossier
+  let ajoutSaisie = { nom: '', dossier: '' };
 
   const dark = () => document.documentElement.dataset.theme === 'dark'
     || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -60,12 +62,20 @@
 
   function ajout() {
     if (!ajoutOuvert) return `<li class="proj add"><button type="button" id="addBtn"><svg aria-hidden="true"><use href="#i-plus"/></svg>Ajouter un projet</button></li>`;
+    const neuf = ajoutMode === 'nouveau';
+    const aide = neuf
+      ? 'Le dossier est créé s’il n’existe pas. On y pose le suivi et des modèles à remplir (registre, backlog, spec d’exemple).'
+      : 'Déjà suivi (il a son tracker.config.json) : il est simplement ajouté. Sinon, le suivi y est installé, sans toucher à vos fichiers.';
+    const radio = (v, l) => `<label class="radio"><input type="radio" name="mode" value="${v}"${ajoutMode === v ? ' checked' : ''}> ${l}</label>`;
     return `<li class="proj add open"><form id="addForm" class="proj-body">
+      <fieldset class="modes"><legend>Ajouter</legend>${radio('nouveau', 'Nouveau projet')}${radio('existant', 'Projet existant')}</fieldset>
+      ${neuf ? `<label for="addNom">Nom du projet</label>
+      <input id="addNom" name="nom" required autocomplete="off" value="${esc(ajoutSaisie.nom)}">` : ''}
       <label for="addDir">Dossier du projet</label>
-      <input id="addDir" name="dossier" required autocomplete="off" spellcheck="false" placeholder="E:/www/mon-projet" aria-describedby="addAide${ajoutErreur ? ' addErr' : ''}">
-      <p class="muted" id="addAide">Le dossier doit contenir tracker.config.json.</p>
+      <input id="addDir" name="dossier" required autocomplete="off" spellcheck="false" placeholder="E:/www/mon-projet" value="${esc(ajoutSaisie.dossier)}" aria-describedby="addAide${ajoutErreur ? ' addErr' : ''}">
+      <p class="muted" id="addAide">${aide}</p>
       ${ajoutErreur ? `<p class="proj-err" id="addErr" role="alert">${esc(ajoutErreur)}</p>` : ''}
-      <div class="row-btns"><button type="submit" class="btn primary">Ajouter</button><button type="button" class="btn" id="addCancel">Annuler</button></div>
+      <div class="row-btns"><button type="submit" class="btn primary">${neuf ? 'Créer' : 'Ajouter'}</button><button type="button" class="btn" id="addCancel">Annuler</button></div>
     </form></li>`;
   }
 
@@ -106,7 +116,7 @@
   $('#projets').addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.id === 'addBtn') { ajoutOuvert = true; ajoutErreur = ''; render('#addDir'); return; }
+    if (b.id === 'addBtn') { ajoutOuvert = true; ajoutErreur = ''; ajoutSaisie = { nom: '', dossier: '' }; render('input[name="mode"]:checked'); return; }
     if (b.id === 'addCancel') { ajoutOuvert = false; render('#addBtn'); return; }
     if (b.dataset.retirer) { aRetirer = b.dataset.retirer; render(`[data-annuler="${CSS.escape(aRetirer)}"]`); return; }
     if (b.dataset.annuler) { const id = aRetirer; aRetirer = null; render(`[data-retirer="${CSS.escape(id)}"]`); return; }
@@ -115,14 +125,26 @@
       catch (err) { const id = aRetirer; aRetirer = null; render(`[data-retirer="${CSS.escape(id)}"]`); alertLine(err.message); }
     }
   });
+  // Changer de mode garde ce qui est deja saisi.
+  $('#projets').addEventListener('change', (e) => {
+    if (e.target.name !== 'mode') return;
+    lireSaisie(); ajoutMode = e.target.value; ajoutErreur = '';
+    render(`input[name="mode"][value="${ajoutMode}"]`);
+  });
+  function lireSaisie() {
+    ajoutSaisie = { nom: $('#addNom') ? $('#addNom').value : ajoutSaisie.nom, dossier: $('#addDir') ? $('#addDir').value : ajoutSaisie.dossier };
+  }
   $('#projets').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const dossier = $('#addDir').value.trim();
+    lireSaisie();
+    const dossier = ajoutSaisie.dossier.trim();
+    const btn = e.target.querySelector('[type="submit"]');
+    btn.disabled = true; btn.textContent = 'Installation…';
     try {
-      const j = await post('/api/projets', { dossier });
+      const j = await post('/api/projets', { mode: ajoutMode, dossier, nom: ajoutSaisie.nom.trim() });
       ajoutOuvert = false; ajoutErreur = '';
       await load(`[data-id="${CSS.escape(j.projet.id)}"] a.proj-body, [data-id="${CSS.escape(j.projet.id)}"] .proj-x`);
-    } catch (err) { ajoutErreur = err.message; render('#addDir'); $('#addDir').value = dossier; }
+    } catch (err) { ajoutErreur = err.message; render('#addDir'); }
   });
   function alertLine(msg) { $('#syncInfo').textContent = 'Échec : ' + msg; }
 

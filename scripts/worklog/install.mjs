@@ -19,19 +19,19 @@ const UI_FILES = ["index.html", "app.js", "xlsx.js", "style.css", "save.php", ".
 const OUTIL_SEUL = ["install.mjs", "sync-agents.mjs", "VERSION", "accueil.mjs", "registre.mjs", "resume.mjs"];
 const SCRIPTS = { chantiers: "node scripts/worklog/chantiers-tracker.mjs", tracker: "node scripts/worklog/serve.mjs", "code:stats": "node scripts/worklog/code-stats.mjs" };
 
-function main() {
-  const arg = process.argv[2];
-  if (!arg || arg.startsWith("--")) { console.error("Usage : node scripts/worklog/install.mjs <dossier du projet>"); return 2; }
-  const dest = resolve(arg);
-  if (!existsSync(dest)) { console.error(`ERREUR : ${dest} n'existe pas`); return 2; }
-  if (dest === SRC) { console.error("ERREUR : le projet cible est ce dépôt lui-même"); return 2; }
-  const log = (verbe, p) => console.log(`  ${verbe.padEnd(9)} ${relative(dest, p).replaceAll("\\", "/")}`);
+/**
+ * Installe (ou met à jour) l'outil dans `dest`, qui existe. `nom` : nom du projet d'un réglage
+ * neuf (sinon le nom du dossier). `out` reçoit chaque ligne du compte rendu. Lève une Error.
+ */
+export function installInto(dest, { nom, out = console.log } = {}) {
+  if (resolve(dest) === SRC) throw new Error("le projet cible est ce dépôt lui-même");
+  const log = (verbe, p) => out(`  ${verbe.padEnd(9)} ${relative(dest, p).replaceAll("\\", "/")}`);
 
   // 1. Réglage : celui du projet s'il existe, sinon un neuf au nom du dossier.
   const cfgPath = join(dest, CONFIG_FILE);
   if (!existsSync(cfgPath)) {
     const modele = JSON.parse(readFileSync(join(SRC, CONFIG_FILE), "utf8"));
-    modele.projet = basename(dest);
+    modele.projet = nom || basename(dest);
     delete modele.code.compterOutil; // ce dépôt-ci mesure l'outil ; un projet mesure son propre code
     writeFileSync(cfgPath, JSON.stringify(modele, null, 4) + "\n", "utf8");
     log("créé", cfgPath);
@@ -50,7 +50,7 @@ function main() {
   const vFile = join(sd, "VERSION");
   const avant = existsSync(vFile) ? readFileSync(vFile, "utf8").trim() : null;
   writeFileSync(vFile, version + "\n", "utf8");
-  console.log(`  agent-worklog ${avant && avant !== version ? `${avant} -> ${version} (voir CHANGELOG.md)` : version}`);
+  out(`  agent-worklog ${avant && avant !== version ? `${avant} -> ${version} (voir CHANGELOG.md)` : version}`);
 
   // 3. Docs du projet : modèles posés seulement dans un projet NEUF (ni registre ni backlog). Un
   // projet qui a déjà ses docs règle d'abord leurs chemins dans tracker.config.json : sans cela,
@@ -78,7 +78,18 @@ function main() {
   const conflit = Object.keys(SCRIPTS).filter((k) => pkg.scripts[k] !== SCRIPTS[k]);
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
   log(ajoutes.length ? "complété" : "gardé", pkgPath);
-  if (conflit.length) console.log(`  ATTENTION : commande(s) npm déjà prises par le projet : ${conflit.join(", ")} ; lancer alors ${conflit.map((k) => SCRIPTS[k]).join(" / ")}`);
+  if (conflit.length) out(`  ATTENTION : commande(s) npm déjà prises par le projet : ${conflit.join(", ")} ; lancer alors ${conflit.map((k) => SCRIPTS[k]).join(" / ")}`);
+
+  return { cfg, ui };
+}
+
+function main() {
+  const arg = process.argv[2];
+  if (!arg || arg.startsWith("--")) { console.error("Usage : node scripts/worklog/install.mjs <dossier du projet>"); return 2; }
+  const dest = resolve(arg);
+  if (!existsSync(dest)) { console.error(`ERREUR : ${dest} n'existe pas`); return 2; }
+  let cfg, ui;
+  try { ({ cfg, ui } = installInto(dest)); } catch (e) { console.error(`ERREUR : ${e.message}`); return 2; }
 
   // 5. Accueil multi-projets : le projet y est inscrit (une seule fois). Un refus (id déjà pris…)
   // n'empêche pas l'installation : il se règle avec `accueil.mjs ajouter <dossier> --id <id>`.
@@ -95,4 +106,4 @@ function main() {
   return 0;
 }
 
-process.exitCode = main();
+if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) process.exitCode = main();

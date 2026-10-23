@@ -315,7 +315,7 @@ test("accueil : liste, sert un projet, écrit dans le bon, refuse le reste", asy
   assert.equal((await post("/p/alpha/save.php", patch("API-03", "fait"), { "Sec-Fetch-Site": "cross-site" })).status, 403);
   assert.equal((await post("/p/alpha/save.php", patch("API-03", "fait"), { "Content-Type": "text/plain" })).status, 415);
 
-  assert.equal((await post("/api/projets", { dossier: tmp })).status, 400);
+  assert.equal((await post("/api/projets", { dossier: "relatif" })).status, 400);
   const d = projet("Delta", null);
   const ajout = await post("/api/projets", { dossier: d });
   assert.equal(ajout.status, 200);
@@ -378,4 +378,50 @@ test("revue 1.4.0 : registre vide, fichiers en bac à sable, hôte local, chemin
   const { request } = await import("node:http");
   const status = await new Promise((ok) => request({ host: "127.0.0.1", port, path: "/p/un/fichiers/tracker.config.json", headers: { Host: "evil.example" } }, (r) => { r.resume(); ok(r.statusCode); }).end());
   assert.equal(status, 403);
+});
+
+test("accueil : nouveau projet (dossier créé, modèles, données) ou projet existant (inscrit, ou suivi installé sans rien écraser)", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-modes-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const registry = join(tmp, "home", "projets.json");
+  const srv = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "1.5.0" }).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  t.after(() => srv.close());
+  const base = `http://localhost:${srv.address().port}`;
+  const post = (body) => fetch(`${base}/api/projets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+  const neuf = join(tmp, "neuf", "sous-dossier");
+  const r1 = await post({ mode: "nouveau", dossier: neuf, nom: "Mon Neuf" });
+  assert.equal(r1.status, 200, await r1.clone().text());
+  assert.equal((await r1.json()).projet.id, "mon-neuf");
+  assert.equal(JSON.parse(readFileSync(join(neuf, "tracker.config.json"), "utf8")).projet, "Mon Neuf");
+  readFileSync(join(neuf, "docs", "CHANTIERS.md"), "utf8");
+  readFileSync(join(neuf, "docs", "tracker", "chantiers.json"), "utf8");
+  const liste = await (await fetch(`${base}/api/projets`)).json();
+  assert.equal(liste.projets[0].erreur, undefined);
+  assert.equal(liste.projets[0].resume.nom, "Mon Neuf");
+  const r2 = await post({ mode: "nouveau", dossier: neuf, nom: "Encore" });
+  assert.equal(r2.status, 400);
+  assert.match((await r2.json()).error, /déjà suivi/);
+
+  const code = join(tmp, "code");
+  mkdirSync(code);
+  writeFileSync(join(code, "README.md"), "mon code");
+  const r3 = await post({ mode: "existant", dossier: code });
+  assert.equal(r3.status, 200, await r3.clone().text());
+  assert.equal(readFileSync(join(code, "README.md"), "utf8"), "mon code");
+  readFileSync(join(code, "tracker.config.json"), "utf8");
+
+  const suivi = join(tmp, "suivi");
+  mkdirSync(suivi);
+  writeFileSync(join(suivi, "tracker.config.json"), JSON.stringify({ projet: "Déjà Suivi" }));
+  const r4 = await post({ mode: "existant", dossier: suivi });
+  assert.equal(r4.status, 200);
+  assert.equal((await r4.json()).projet.id, "deja-suivi");
+  assert.throws(() => readFileSync(join(suivi, "scripts", "worklog", "VERSION")), /ENOENT/);
+
+  const r5 = await post({ mode: "existant", dossier: join(tmp, "absent") });
+  assert.equal(r5.status, 400);
+  assert.match((await r5.json()).error, /n'existe pas/);
+  assert.equal(loadRegistry(registry).projets.length, 3);
 });

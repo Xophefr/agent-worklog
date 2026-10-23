@@ -12,12 +12,14 @@
 // projet). Le chantiers.json servi est complété à la volée (meta.accueil, liens vers les
 // fichiers) ; le fichier du projet n'est réécrit que par un patch. Écoute sur 127.0.0.1.
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, loadConfig } from "./config.mjs";
+import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
+import { installInto } from "./install.mjs";
 import { fail, isLocalHost, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
-import { addProject, loadRegistry, registryFile, removeProject, saveRegistry } from "./registre.mjs";
+import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 import { summarize } from "./resume.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +42,35 @@ function ouvrir(entree) {
   const dataFile = join(tracker, "chantiers.json");
   if (!existsSync(dataFile)) return { dossier, cfg, tracker, erreur: "chantiers.json absent : lancer npm run chantiers" };
   return { dossier, cfg, tracker, dataFile };
+}
+
+/**
+ * Inscrit un projet depuis la page d'accueil. Deux cas :
+ *  - « nouveau » : le dossier (créé s'il manque) reçoit l'outil, un réglage au nom donné et les
+ *    modèles (registre, backlog, spec d'exemple) ; refusé s'il est déjà suivi ;
+ *  - « existant » : un dossier déjà suivi est seulement inscrit (rien n'y est écrit) ; un dossier
+ *    de code qui ne l'est pas reçoit l'outil, sans qu'aucun de ses fichiers soit remplacé.
+ * Dans les deux cas où l'outil est posé, chantiers.json est construit tout de suite.
+ */
+export function inscrire(reg, { mode = "existant", dossier, nom, id } = {}) {
+  const d = String(dossier || "").trim();
+  if (!isAbsolute(d)) throw new Error(`chemin absolu attendu : « ${d} »`);
+  const abs = resolve(d);
+  const suivi = existsSync(join(abs, CONFIG_FILE));
+  if (mode === "nouveau") {
+    if (suivi) throw new Error(`${abs} est déjà suivi : choisir « Projet existant »`);
+    if (!String(nom || "").trim()) throw new Error("nom du projet attendu");
+  } else if (!existsSync(abs)) throw new Error(`${abs} n'existe pas`);
+  if (suivi) return addProject(reg, abs, { id });
+  // Id vérifié AVANT d'écrire quoi que ce soit dans le dossier.
+  const pid = slugId(id || String(nom || "").trim() || basename(abs));
+  if (!pid) throw new Error("id vide (choisir un nom)");
+  if (reg.projets.some((p) => p.id === pid)) throw new Error(`id déjà pris : ${pid} (choisir un autre nom)`);
+  mkdirSync(abs, { recursive: true });
+  installInto(abs, { nom: String(nom || "").trim() || undefined, out: () => {} });
+  const r = spawnSync(process.execPath, [join(abs, "scripts", "worklog", "chantiers-tracker.mjs"), "--root", abs], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`outil installé, mais npm run chantiers a échoué : ${(r.stderr || r.stdout || "").trim().slice(0, 300)}`);
+  return addProject(reg, abs, { id: pid });
 }
 
 function versionDe(dossier) {
@@ -133,7 +164,7 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       if (req.method !== "POST") return fail(res, 405, "GET ou POST attendu");
       return ecrire(req, res, (input) => {
         try {
-          const p = addProject(reg, String(input.dossier || ""), { id: input.id || undefined });
+          const p = inscrire(reg, { mode: input.mode, dossier: input.dossier, nom: input.nom, id: input.id || undefined });
           saveRegistry(registry, reg);
           return send(res, 200, { ok: true, projet: p });
         } catch (e) { return fail(res, 400, e.message); }

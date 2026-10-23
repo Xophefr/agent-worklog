@@ -6,6 +6,22 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 1.5.0 · 2026-10-23
+
+### Ajouté
+
+- **Deux façons d'ajouter un projet depuis l'accueil** : « Nouveau projet » (nom et dossier, créé s'il manque ; le suivi y est installé avec ses modèles et le tableau est prêt aussitôt) ou « Projet existant » (un dossier déjà suivi est seulement ajouté ; un dossier de code non suivi reçoit le suivi sans qu'aucun de ses fichiers soit remplacé). Avant, un dossier sans `tracker.config.json` était refusé.
+
+### Modifié
+
+- **Priorisation** : sous 1 280 px, l'état et l'avancement d'un chantier passent sous son titre ; ils étaient masqués.
+- **Filtres** : une grille régulière, chaque libellé au-dessus de sa liste ; recherche, chantier et lot sur deux colonnes.
+- L'installation s'appelle aussi comme une fonction (`installInto` dans `install.mjs`), utilisée par l'accueil.
+
+### À faire dans un projet
+
+Rien : relancer l'installation.
+
 ## 1.4.0 · 2026-10-23
 
 ### Ajouté

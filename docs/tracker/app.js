@@ -150,8 +150,8 @@
       <span class="mono">${esc(c.id)}</span>
       <span class="prio-cell">${prio(c.priorite)}</span>
       <span class="title"><a href="#${esc(c.id)}"><span class="sr">${esc(c.id)} : </span>${t}</a><small>${esc(plain(c.note || c.prochaine_action))}</small></span>
-      <span class="etat">${pill(c.colonne, COLS[c.colonne] || c.colonne, 'état')}${c.orphelin ? ' ' + pill('orphan', 'orphelin') : ''}</span>
-      <span class="prog">${n.total ? `${bar(n)}${progText(n)}` : '<span aria-hidden="true">—</span>'}</span>
+      <span class="row-meta"><span class="etat">${pill(c.colonne, COLS[c.colonne] || c.colonne, 'état')}${c.orphelin ? ' ' + pill('orphan', 'orphelin') : ''}</span>
+      <span class="prog">${n.total ? `${bar(n)}${progText(n)}` : '<span aria-hidden="true">—</span>'}</span></span>
       <span class="moves">
         <button type="button" data-move="-1"${pos === 0 ? ' disabled' : ''} aria-label="Monter ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${c.priorite})"><svg aria-hidden="true"><use href="#i-up"/></svg></button>
         <button type="button" data-move="1"${pos === count - 1 ? ' disabled' : ''} aria-label="Descendre ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${c.priorite})"><svg aria-hidden="true"><use href="#i-down"/></svg></button></span>
