@@ -7,11 +7,12 @@ Les agents de code (Claude Code, Codex, Cursor…) avancent vite, et l'état du 
 - **Trois fichiers Markdown** dans le dépôt : l'état des chantiers, le backlog des tâches, une spec par chantier.
 - **Un tableau local** à cinq vues (priorisation, kanban, tâches, terminés, code), sans dépendance, accessible au clavier, utilisable sur téléphone, en clair et en sombre.
 - **Un accueil multi-projets** : une carte par projet suivi, avec son avancement et ce qui vous attend, et le tableau de chacun à la même adresse.
+- **Un mode base de données, au choix** : le suivi vit dans PostgreSQL, MySQL ou MariaDB, derrière un serveur (le BFF) ; les sessions écrivent sans commit et sans se gêner, chaque modification est tracée, et l'interface devient un éditeur.
 - **Un script** que l'agent appelle pour passer une tâche en cours, livrée ou faite, avec une phrase de suivi datée.
 - **Un relevé des lignes de code et de tests**, jour après jour.
 - **Des instructions prêtes à copier** pour Claude Code, Codex et les autres agents.
 
-Aucune dépendance npm. Node.js 20 ou plus ; PHP en option.
+Aucune dépendance npm dans vos projets. Node.js 20 ou plus ; PHP en option ; pour le mode base, `pg` ou `mysql2`, installés seulement là où tourne le BFF.
 
 ### Au quotidien
 
@@ -226,6 +227,7 @@ Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d
 | `npm run chantiers -- --session <nom> --lot ID=<n>` | place une tâche dans un lot de la spec |
 | `npm run tracker` | sert le tableau sur `http://localhost:4173/` (`-- --port 8080` pour changer) |
 | `npm run accueil` | (dans ce dépôt) sert l'accueil de tous les projets inscrits sur `http://localhost:4170/` |
+| `npm run bff` | (dans ce dépôt) sert le BFF du mode base sur `http://localhost:4180/` ; `-- jeton interface` ou `-- jeton <projet>` crée un jeton |
 | `npm run code:stats` | ajoute le relevé du jour à l'onglet « Code » (`-- --check` : affiche seulement) |
 | `npm run agents:sync` | régénère le bloc `AGENTS.md` depuis le skill Claude Code (dans ce dépôt) |
 | `npm test` | tests de l'outil |
@@ -278,6 +280,37 @@ node scripts/worklog/accueil.mjs liste
 ```
 
 L'identifiant (`/p/<id>/`) est tiré du nom du projet (`projet` dans `tracker.config.json`) et ne change plus une fois inscrit. L'accueil sert toujours l'interface de ce dépôt, la plus récente, avec les données de chaque projet ; une carte signale un projet dont l'outil installé est plus ancien (« relancer install.mjs »). Il écrit dans un projet exactement comme le tableau seul : même protocole, mêmes garde-fous, une file d'écriture par projet. Il n'écoute que sur `127.0.0.1`.
+
+## Mode base de données
+
+Par défaut, le suivi vit dans les fichiers du dépôt (mode fichiers) : chaque session réécrit `CHANTIERS.md`, le backlog et `chantiers.json`, qu'il faut commiter. En **mode base**, il vit dans une base PostgreSQL, MySQL ou MariaDB, derrière un serveur unique, le **BFF** : les sessions écrivent par lui, sans commit et sans dépendre les unes des autres, et chaque modification garde son auteur, sa date et l'ancienne valeur.
+
+```
+session (npm run chantiers …) ──┐
+                                 ├──> BFF (npm run bff) ──> PostgreSQL / MySQL / MariaDB
+navigateur ──> accueil local ───┘     (jetons, historique)
+```
+
+### Mettre en place
+
+1. Dans ce dépôt : `npm install` (pilotes `pg` et `mysql2`, pour le BFF seulement).
+2. Une base vide et son adresse dans `~/.agent-worklog/bff.json` (hors de tout dépôt) :
+   ```json
+   { "base": "postgres://worklog:motdepasse@localhost:5432/worklog", "port": 4180 }
+   ```
+   ou `mysql://…` / `mariadb://…`. `WORKLOG_BASE_URL` prime. Le BFF crée et fait évoluer ses tables (`wl_*`) lui-même.
+3. `npm run bff`. Il n'écoute que sur `127.0.0.1` ; sur un serveur, on le joint par un tunnel SSH.
+4. Lier l'accueil au BFF : `npm run bff -- jeton interface` (sur la machine du BFF) puis, sur le poste, `node scripts/worklog/accueil.mjs lier-bff http://localhost:4180 <jeton>`. `node scripts/worklog/accueil.mjs auteur "Votre nom"` règle le nom qui signe vos modifications.
+5. Passer un projet en base : bouton « Passer en base » de sa carte, ou `npm run chantiers -- --importer --bff http://localhost:4180` dans le projet, ou `node scripts/worklog/install.mjs <dossier> --mode base --bff <url>`. L'import envoie tout (chantiers, tâches, statuts, priorités, notes, lots, journal, specs, et une copie brute des `.md`), passe `tracker.config.json` en `"mode": "base"` et garde le jeton du projet dans `~/.agent-worklog/jetons.json`, jamais dans le dépôt.
+
+Un jeton n'est envoyé qu'au BFF qui l'a émis : une adresse changée dans `tracker.config.json` ne reçoit rien. Le navigateur ne parle jamais au BFF : l'accueil relaie, avec son jeton et votre nom.
+
+### Au quotidien
+
+- **Les sessions** gardent `npm run chantiers -- --session … --statut/--suivi/--lot/--chantier`, et lisent ou écrivent le reste par des commandes : `voir CH-xx`, `taches`, `chantier ajouter|maj|clore`, `tache ajouter|maj`, `journal "…"`. Une commande qui remplace la valeur d'un autre auteur le dit. `npm run chantiers` sans argument envoie les specs du dépôt (découpage en lots, texte affiché dans la fiche).
+- **L'interface** : une fiche se lit, « Modifier » la passe en formulaire (« Enregistrer » / « Annuler ») ; un champ changé entre-temps par quelqu'un d'autre est signalé sans perdre votre saisie. Onglet « Historique » dans chaque fiche, onglet « Journal », boutons « + Nouveau chantier » et « + Nouvelle tâche », clôture d'un chantier.
+- **Les `.md` du dépôt** : dans les réglages du projet (roue dentée), *garder* (gelés : une ligne en tête dit que le suivi vit dans la base) ou *retirer* (la commande du projet les supprime à son passage suivant). **Générer les `.md`** : « Télécharger en Markdown » (CHANTIERS.md, backlog, et `chantiers.json` avec statuts et priorités), ou `npm run chantiers -- --exporter` (`docs/export-<date>/`, ou en place avec `--remplacer`). Relu par le mode fichiers, l'export redonne les mêmes chantiers et tâches.
+- **Les specs** restent des fichiers du dépôt, versionnés avec le code.
 
 ### Deux façons de le servir
 
@@ -388,7 +421,12 @@ agent-worklog/
 │   ├── accueil.mjs               npm run accueil (accueil multi-projets)
 │   ├── registre.mjs              projets inscrits (~/.agent-worklog/projets.json)
 │   ├── resume.mjs                stats d'un projet pour sa carte
-│   ├── http.mjs                  garde-fous HTTP communs aux deux serveurs
+│   ├── http.mjs                  garde-fous HTTP communs aux serveurs
+│   ├── bff.mjs                   npm run bff (mode base)
+│   ├── base/                     connexion, schéma, dépôt de données du BFF (jamais copié dans un projet)
+│   ├── client.mjs                commande d'un projet en mode base (HTTP vers le BFF)
+│   ├── operations.mjs            opérations du mode base (créer, modifier, clore, journal, lots)
+│   ├── export-md.mjs             export Markdown d'un projet en base
 │   ├── patch.mjs                 enregistrement du tableau (verrou par champ)
 │   ├── code-stats.mjs            npm run code:stats
 │   ├── config.mjs                lecture de tracker.config.json

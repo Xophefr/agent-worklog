@@ -6,6 +6,27 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 2.0.0 · 2026-10-23
+
+### Ajouté
+
+- **Mode base de données** : le suivi d'un projet peut vivre dans PostgreSQL, MySQL ou MariaDB, derrière un serveur unique (`npm run bff`, pilotes `pg` / `mysql2` installés dans ce dépôt seulement). Les sessions écrivent par lui, sans commit et sans se gêner ; deux écritures sur un même projet passent l'une après l'autre.
+- **Historique** : chaque modification (interface, session, import) garde son auteur, sa date et l'ancienne valeur ; onglet « Historique » dans chaque fiche ; une commande qui remplace la valeur d'un autre auteur le dit.
+- **Rédaction dans l'interface** (mode base) : fiche en lecture, « Modifier » / « Enregistrer » / « Annuler », verrou par champ (un champ changé entre-temps est signalé sans perdre la saisie), « + Nouveau chantier », « + Nouvelle tâche », clôture, onglet « Journal », spec affichée dans la fiche, réglages du projet.
+- **Commandes du mode base** : `voir CH-xx`, `taches`, `chantier ajouter|maj|clore`, `tache ajouter|maj`, `journal`, `--importer`, `--exporter` ; le relevé de code est envoyé au BFF.
+- **Import et export** : un projet en fichiers passe en base sans perte (bouton de sa carte, `--importer`, ou `install.mjs --mode base --bff <url>`) ; l'export redonne `CHANTIERS.md`, le backlog et `chantiers.json`, relus à l'identique par le mode fichiers (vérifié sur deux projets réels).
+- **Accueil** : il montre ensemble les projets des deux modes et relaie les projets en base vers leur BFF, avec son jeton et le nom de l'auteur (`accueil.mjs lier-bff`, `accueil.mjs auteur`).
+
+### Modifié
+
+- `tracker.config.json` gagne `mode` (`"fichiers"` par défaut), `bff` et `projetBase`.
+- Une cellule de tableau Markdown lit une barre précédée d'une barre oblique inverse comme une barre dans le texte.
+- Une requête trop grande reçoit une réponse 413 au lieu d'une connexion coupée.
+
+### À faire dans un projet
+
+Rien pour un projet qui reste en mode fichiers : relancer l'installation. Pour passer en base : voir « Mode base de données » dans le README.
+
 ## 1.5.0 · 2026-10-23
 
 ### Ajouté

@@ -90,6 +90,31 @@ Cette consigne seule suffit : tout le contexte est dans le dépôt.
   constatées (`fait`), la ligne descend dans « Chantiers clos » (id, chantier, clos le,
   preuve, ce qui en reste).
 
+### Projet en mode base
+
+Si `tracker.config.json` dit `"mode": "base"`, le suivi vit dans la base du BFF, pas dans le
+dépôt : `CHANTIERS.md` et le backlog sont gelés (ou retirés), on ne les modifie plus, et il n'y a
+plus rien à commiter pour le suivi. Le cycle ci-dessus reste le même ; seuls les gestes changent :
+
+| Geste | Commande |
+|---|---|
+| Lire la ligne d'un chantier, ses lots, ses tâches ouvertes, son journal | `npm run chantiers -- voir CH-xx` |
+| Lister les tâches ouvertes | `npm run chantiers -- taches [CH-xx]` |
+| Statut, suivi, lot, rattachement | les mêmes `--session … --statut/--suivi/--lot/--chantier` |
+| Ligne de journal (`OUVERT`, `FERMÉ`) | `npm run chantiers -- --session s journal "FERMÉ. …" --chantier CH-xx --commits … --docs …` |
+| Nouvelle tâche | `npm run chantiers -- --session s tache ajouter CH-xx --titre … --attendu … [--priorite P1 --decision]` |
+| Modifier une tâche | `npm run chantiers -- --session s tache maj ID --attendu … --priorite …` |
+| Nouveau chantier | `npm run chantiers -- --session s chantier ajouter --titre … --etat "en cours" --prochaine … --doc …` |
+| Mettre à jour la ligne d'un chantier | `npm run chantiers -- --session s chantier maj CH-xx --etat … --prochaine … --decisions …` |
+| Clore un chantier | `npm run chantiers -- --session s chantier clore CH-xx --preuve … --reste …` |
+| Envoyer les specs (lots) après les avoir modifiées | `npm run chantiers` |
+
+Chaque écriture est tracée dans l'historique (auteur = la session). Quand une commande remplace
+une valeur posée par quelqu'un d'autre (le responsable dans l'interface, une autre session),
+elle l'affiche (« était … (auteur, heure) ») : le dire au responsable si cela contredit son choix.
+Les specs restent des fichiers du dépôt, versionnés avec le code. « BFF injoignable » : ne rien
+réécrire à la main dans les `.md`, prévenir le responsable (tunnel, BFF arrêté).
+
 ### Règles
 
 - **Une décision qui revient au responsable se POSE** (question, options, recommandation)
