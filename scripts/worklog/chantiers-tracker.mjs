@@ -45,10 +45,19 @@ const reEsc = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const fold = (t) => String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const posix = (p) => p.replaceAll("\\", "/");
 
-/** Le mot qui marque une tâche « décision attendue » (réglage `ui.marque`), accents et casse indifférents. */
-export function marqueRe(marque = "DÉCISION") {
+/**
+ * Le mot qui marque une tâche « décision attendue » (réglage `ui.marque`), accents indifférents.
+ * Casse indifférente aussi, sauf `casse` (réglage `ui.marqueCasse`) : alors seul le mot écrit
+ * comme le réglage compte, et « DÉCISION » ne se confond plus avec « la décision du 4 octobre ».
+ */
+export function marqueRe(marque = "DÉCISION", casse = false) {
   const VAR = { a: "aàâä", c: "cç", e: "eéèêë", i: "iîï", o: "oôö", u: "uùûü" };
-  return new RegExp([...fold(marque)].map((ch) => (VAR[ch] ? `[${VAR[ch]}]` : reEsc(ch))).join(""), "i");
+  const base = String(marque).normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return new RegExp([...base].map((ch) => {
+    const v = VAR[ch.toLowerCase()];
+    if (!v) return reEsc(ch);
+    return `[${casse && ch !== ch.toLowerCase() ? v.toUpperCase() : v}]`;
+  }).join(""), casse ? "" : "i");
 }
 
 // ---------- backlog ----------
@@ -394,7 +403,7 @@ function main() {
   }
   const old = existsSync(OUT_JSON) ? JSON.parse(readFileSync(OUT_JSON, "utf8")) : {};
   const chantiers = parseChantiers(readFileSync(CHANTIERS_MD, "utf8"));
-  const items = parseBacklog(readFileSync(BACKLOG_MD, "utf8"), marqueRe(cfg.ui.marque));
+  const items = parseBacklog(readFileSync(BACKLOG_MD, "utf8"), marqueRe(cfg.ui.marque, !!cfg.ui.marqueCasse));
   // Backlog qui n'est pas rangé par chantier : le réglage `rattachements` donne le chantier par défaut.
   const defauts = rattachementsParDefaut(cfg.rattachements);
   for (const it of items) it.chantier_backlog ||= defauts.get(it.id) || null;

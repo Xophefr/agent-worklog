@@ -322,6 +322,7 @@ powershell -ExecutionPolicy Bypass -File scripts/worklog/install-code-stats-task
 | `tracker` | `docs/tracker` | dossier du tableau et de ses données |
 | `ui.accent` / `ui.accentSombre` | `#3538cd` / `#a4a6ff` | couleur d'accent, thème clair et sombre (viser 4,5:1 sur le fond) |
 | `ui.marque` | `DÉCISION` | mot qui marque une tâche « décision attendue » (accents et casse indifférents) |
+| `ui.marqueCasse` | `false` | `true` : la casse du mot compte (accents toujours indifférents) ; `DÉCISION` ne se confond plus avec « la décision du 4 octobre » |
 | `ui.echelle` | `125` | taille du texte du tableau, en % de celle du navigateur |
 | `controle.enCoursSpecSeulement` | `false` | `true` : « en cours sans tâche qui bouge » n'est signalé que pour un chantier dont la doc est une spec du dossier `specs` (un chantier plus ancien que le suivi peut avancer hors de ses tâches) |
 | `rattachements` | — | chantier par défaut des tâches d'un backlog non rangé par chantier : `{ "CH-04": "API-01 API-02" }` (liste séparée par des espaces, ou tableau) ; ne vaut que pour une tâche nouvelle ou sans rattachement |

@@ -10,6 +10,16 @@ Publier une version : renommer « À venir » en `## x.y.z · date`, porter le n
 
 Rien pour l'instant.
 
+## 1.2.0 · 2026-10-23
+
+### Ajouté
+
+- **Réglage `ui.marqueCasse`** : à `true`, seul le mot écrit dans la casse du réglage marque une tâche « décision attendue » (`DÉCISION`, et plus « la décision du 4 octobre » dans le texte d'une tâche). Les accents restent indifférents. Par défaut la casse ne compte pas, comme avant.
+
+### À faire dans un projet
+
+Rien : relancer l'installation. Un backlog qui écrit souvent « décision » en minuscules dans ses textes active `ui.marqueCasse`.
+
 ## 1.1.0 · 2026-10-23
 
 ### Ajouté

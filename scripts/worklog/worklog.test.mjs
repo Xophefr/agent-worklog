@@ -55,6 +55,10 @@ test("backlog : titre, chantier de la section, marque de décision sans accent",
   assert.equal(its[3].chantier_backlog, "CH-02");
   assert.ok(marqueRe("DÉCISION").test("Decision"));
   assert.ok(marqueRe("ARBITRAGE").test("[arbitrage]"));
+  // ui.marqueCasse : la casse compte, les accents non
+  assert.ok(marqueRe("DÉCISION", true).test("DECISION : taille de page"));
+  assert.ok(marqueRe("DÉCISION", true).test("DÉCISION"));
+  assert.ok(!marqueRe("DÉCISION", true).test("la décision du 4 octobre"));
 });
 
 test("backlog : tâche en titre ou en paragraphe, id à chiffres, annexe ignorée, rattachement du réglage", () => {
