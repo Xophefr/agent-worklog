@@ -91,9 +91,17 @@
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; });
 
+  // Ce qui a le focus, pour le lui rendre apres un nouveau rendu de la liste.
+  function focusSel() {
+    const el = document.activeElement;
+    if (!el || !$('#projets').contains(el)) return null;
+    if (el.id) return '#' + CSS.escape(el.id);
+    for (const k of ['retirer', 'annuler', 'confirmer']) if (el.dataset[k]) return `[data-${k}="${CSS.escape(el.dataset[k])}"]`;
+    const card = el.closest('[data-id]');
+    return card ? `[data-id="${CSS.escape(card.dataset.id)}"] a.proj-body` : null;
+  }
   // Une saisie en cours ou une confirmation ouverte ne sont jamais effacees par le rafraichissement.
-  setInterval(() => { if (!ajoutOuvert && !aRetirer && !document.hidden) load(document.activeElement && document.activeElement.matches('a.proj-body')
-    ? `[data-id="${CSS.escape(document.activeElement.closest('[data-id]').dataset.id)}"] a.proj-body` : null); }, 30000);
+  setInterval(() => { if (!ajoutOuvert && !aRetirer && !document.hidden) load(focusSel()); }, 30000);
 
   $('#projets').addEventListener('click', async (e) => {
     const b = e.target.closest('button');
@@ -104,7 +112,7 @@
     if (b.dataset.annuler) { const id = aRetirer; aRetirer = null; render(`[data-retirer="${CSS.escape(id)}"]`); return; }
     if (b.dataset.confirmer) {
       try { await post('/api/projets/retirer', { id: b.dataset.confirmer }); aRetirer = null; await load('#addBtn'); }
-      catch (err) { aRetirer = null; render(); alertLine(err.message); }
+      catch (err) { const id = aRetirer; aRetirer = null; render(`[data-retirer="${CSS.escape(id)}"]`); alertLine(err.message); }
     }
   });
   $('#projets').addEventListener('submit', async (e) => {
@@ -129,7 +137,7 @@
     const next = dark() ? 'light' : 'dark';
     store.set('theme', next); applyTheme(next); render();
   });
-  $('#reloadBtn').addEventListener('click', () => load());
+  $('#reloadBtn').addEventListener('click', () => load(focusSel()));
   applyTheme(store.get('theme', null));
   load();
 })();

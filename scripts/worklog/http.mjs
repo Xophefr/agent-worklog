@@ -14,14 +14,19 @@ export const TYPES = {
 const HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 export const MAX_BODY = 2_000_000;
 
-export function send(res, code, body, type = "application/json; charset=utf-8") {
-  res.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+export function send(res, code, body, type = "application/json; charset=utf-8", headers = {}) {
+  res.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", ...headers });
   res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 export const fail = (res, code, error) => send(res, code, { ok: false, error });
 
+/** Requête adressée au poste local (Host) : refuse une page tierce qui passerait par un nom rebondi vers 127.0.0.1. */
+export function isLocalHost(req) {
+  return HOSTS.has(String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "")) && !req.headers["x-forwarded-for"];
+}
+
 /** Sert `relPath` (décodé, relatif à `root`) ; 404 pour un fichier caché, une sortie du dossier ou un absent. */
-export function serveFile(req, res, root, relPath) {
+export function serveFile(req, res, root, relPath, headers = {}) {
   const parts = relPath.split("/").filter(Boolean);
   if (parts.some((p) => p.startsWith(".") || p.includes("\\"))) return fail(res, 404, "introuvable");
   root = resolve(root);
@@ -32,13 +37,12 @@ export function serveFile(req, res, root, relPath) {
     p = join(p, "index.html");
   }
   if (!existsSync(p) || !statSync(p).isFile()) return fail(res, 404, "introuvable");
-  return send(res, 200, req.method === "HEAD" ? "" : readFileSync(p), TYPES[extname(p).toLowerCase()] || "application/octet-stream");
+  return send(res, 200, req.method === "HEAD" ? "" : readFileSync(p), TYPES[extname(p).toLowerCase()] || "application/octet-stream", headers);
 }
 
 /** Refus d'une écriture, ou null si elle est admise : { code, error }. */
 export function writeGuard(req) {
-  const host = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
-  if (!HOSTS.has(host) || req.headers["x-forwarded-for"]) return { code: 403, error: "écriture réservée au poste local" };
+  if (!isLocalHost(req)) return { code: 403, error: "écriture réservée au poste local" };
   // Pas d'écriture depuis une autre page ouverte dans le navigateur (CSRF) : le JSON impose une
   // requête de contrôle que le navigateur ne passe pas sans CORS, Sec-Fetch-Site dit d'où vient l'appel.
   if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) return { code: 415, error: "JSON attendu" };

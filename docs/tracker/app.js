@@ -646,9 +646,11 @@
     if (acc && !crumbs.childElementCount) {
       const cur = (location.pathname.match(/\/p\/([^/]+)\//) || [])[1];
       crumbs.innerHTML = `<a href="${esc(acc.url)}">← Mes projets</a>` + (acc.projets.length > 1
-        ? `<label>Projet <select id="projSel">${acc.projets.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.nom)}</option>`).join('')}</select></label>` : '');
-      const sel = $('#projSel');
-      if (sel) sel.addEventListener('change', () => { location.href = `/p/${encodeURIComponent(sel.value)}/`; });
+        ? `<label>Projet <select id="projSel">${acc.projets.map((p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.nom)}</option>`).join('')}</select></label>`
+          + '<button type="button" class="btn" id="projGo">Ouvrir</button>' : '');
+      // Un bouton, pas le changement de la liste : au clavier, une fleche changeait deja de page (RGAA 7.5, WCAG 3.2.2).
+      const go = $('#projGo');
+      if (go) go.addEventListener('click', () => { location.href = `/p/${encodeURIComponent($('#projSel').value)}/`; });
       crumbs.hidden = false;
     }
     const root = document.documentElement.style;

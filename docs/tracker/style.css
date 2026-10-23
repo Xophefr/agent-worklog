@@ -80,6 +80,7 @@ a { color: var(--accent); text-underline-offset: .15em; }
 .crumbs a { display: inline-flex; align-items: center; min-height: 2.75rem; color: var(--muted); text-decoration: none; font-weight: 600; }
 .crumbs a:hover { color: var(--text); text-decoration: underline; }
 .crumbs label { display: inline-flex; align-items: center; gap: .375rem; color: var(--muted); }
+.crumbs .btn { min-height: 2.75rem; padding: 0 .75rem; font-size: .8125rem; }
 .crumbs select { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-s); padding: .25rem .5rem; min-height: 2.75rem; color: var(--text); }
 .sub { margin: .125rem 0 0; color: var(--muted); font-size: .8125rem; }
 .top-actions { display: flex; align-items: center; gap: .5rem; }

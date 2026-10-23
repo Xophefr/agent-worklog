@@ -347,3 +347,35 @@ test("install.mjs inscrit le projet à l'accueil, une seule fois", (t) => {
   const reg = loadRegistry(registryFile({ AGENT_WORKLOG_HOME: home }));
   assert.deepEqual(reg.projets.map((p) => p.id), ["mon-projet"]);
 });
+
+test("revue 1.4.0 : registre vide, fichiers en bac à sable, hôte local, chemin relatif refusé", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-rev-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const registry = join(tmp, "home", "projets.json");
+  mkdirSync(join(tmp, "home"));
+  writeFileSync(registry, "  \n");
+  assert.deepEqual(loadRegistry(registry), { projets: [] });
+
+  const dir = join(tmp, "Un");
+  mkdirSync(join(dir, "docs", "tracker"), { recursive: true });
+  writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Un" }));
+  writeFileSync(join(dir, "docs", "tracker", "chantiers.json"), JSON.stringify(build()));
+  writeFileSync(join(dir, "docs", "evil.html"), "<script>1</script>");
+  const reg = { projets: [] };
+  addProject(reg, dir);
+  saveRegistry(registry, reg);
+  assert.throws(() => addProject(reg, "   "), /chemin absolu attendu/);
+  assert.throws(() => addProject(reg, "relatif/projet"), /chemin absolu attendu/);
+
+  const srv = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "1.4.0" }).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  t.after(() => srv.close());
+  const port = srv.address().port;
+  const evil = await fetch(`http://localhost:${port}/p/un/fichiers/docs/evil.html`);
+  assert.equal(evil.status, 200);
+  assert.match(evil.headers.get("content-security-policy") || "", /sandbox/);
+  assert.equal((await fetch(`http://localhost:${port}/p/un/`)).headers.get("content-security-policy"), null);
+  const { request } = await import("node:http");
+  const status = await new Promise((ok) => request({ host: "127.0.0.1", port, path: "/p/un/fichiers/tracker.config.json", headers: { Host: "evil.example" } }, (r) => { r.resume(); ok(r.statusCode); }).end());
+  assert.equal(status, 403);
+});

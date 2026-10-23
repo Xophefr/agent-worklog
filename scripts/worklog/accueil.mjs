@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { at, loadConfig } from "./config.mjs";
-import { fail, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
+import { fail, isLocalHost, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry } from "./registre.mjs";
 import { summarize } from "./resume.mjs";
 
@@ -113,11 +113,13 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     if (!o.dossier) return fail(res, 404, o.erreur);
     if (rest === "chantiers.json") return o.dataFile ? donnees(res, reg, o) : fail(res, 404, o.erreur);
     if (rest === "code_stats.json") return serveFile(req, res, o.tracker, "code_stats.json");
-    if (rest.startsWith("fichiers/")) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length));
+    // Bac à sable : une page HTML d'un projet (node_modules, docs…) ne s'exécute pas avec les droits de l'accueil.
+    if (rest.startsWith("fichiers/")) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length), { "Content-Security-Policy": "sandbox" });
     return fail(res, 404, "introuvable");
   }
 
   async function route(req, res) {
+    if (!isLocalHost(req)) return fail(res, 403, "hôte refusé : ouvrir http://localhost");
     let pathname;
     try { pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname); } catch { return fail(res, 400, "adresse invalide"); }
     if (pathname === "/" || RACINE.has(pathname.slice(1))) {
@@ -166,7 +168,7 @@ function main(argv) {
     }
     if (!arg) { console.error(`Usage : accueil.mjs ${cmd} ${cmd === "ajouter" ? "<dossier> [--id <id>]" : "<id>"}`); return 2; }
     if (cmd === "ajouter") {
-      const p = addProject(reg, arg, { id: opt("--id") });
+      const p = addProject(reg, resolve(arg), { id: opt("--id") });
       saveRegistry(file, reg);
       console.log(`inscrit : ${p.id} (${p.dossier})`);
     } else {

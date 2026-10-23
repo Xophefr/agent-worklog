@@ -5,7 +5,7 @@
 // du projet. `type` vaut "fichiers" (le suivi vit dans les .md du dépôt).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { CONFIG_FILE, loadConfig } from "./config.mjs";
 
 /** Fichier du registre ; AGENT_WORKLOG_HOME le déplace (tests, installation à part). */
@@ -15,8 +15,10 @@ export function registryFile(env = process.env) {
 
 export function loadRegistry(file) {
   if (!existsSync(file)) return { projets: [] };
+  const txt = readFileSync(file, "utf8");
+  if (!txt.trim()) return { projets: [] }; // fichier créé vide (touch, éditeur) : aucun projet
   let reg;
-  try { reg = JSON.parse(readFileSync(file, "utf8")); } catch (e) { throw new Error(`projets.json illisible : ${e.message}`); }
+  try { reg = JSON.parse(txt); } catch (e) { throw new Error(`projets.json illisible : ${e.message}`); }
   if (!reg || !Array.isArray(reg.projets)) throw new Error("projets.json illisible : liste « projets » attendue");
   return reg;
 }
@@ -37,7 +39,9 @@ const cle = (d) => { const p = resolve(d).replaceAll("\\", "/").replace(/\/+$/, 
 
 /** Inscrit `dossier` ; renvoie l'entrée (l'existante si le dossier est déjà inscrit). */
 export function addProject(reg, dossier, { id } = {}) {
-  const abs = resolve(dossier);
+  // Absolu seulement : un chemin vide ou relatif se résoudrait contre le dossier du serveur.
+  if (!isAbsolute(String(dossier).trim())) throw new Error(`chemin absolu attendu : « ${String(dossier).trim()} »`);
+  const abs = resolve(String(dossier).trim());
   const deja = reg.projets.find((p) => cle(p.dossier) === cle(abs));
   if (deja) return deja;
   if (!existsSync(join(abs, CONFIG_FILE))) throw new Error(`pas de ${CONFIG_FILE} dans ${abs}`);
