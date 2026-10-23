@@ -335,8 +335,12 @@ export function applySession(data, { statuts = [], suivis = [], lots = [], ratta
 }
 
 /** L'état d'un chantier et le statut de ses tâches doivent dire la même chose. */
-export function incoherences(data) {
+// `opts.enCoursSpecSeulement` (réglage controle.enCoursSpecSeulement) : seul un chantier dont la
+// doc est une spec du dossier `specs` avance par ses tâches ; un chantier plus ancien que le
+// suivi peut être en cours sur son périmètre d'origine sans qu'aucune tâche ne bouge.
+export function incoherences(data, opts = {}) {
   const out = [];
+  const SPEC_RE = specRe(opts.specs);
   for (const c of data.chantiers) {
     if (c.orphelin) continue;
     const its = data.items.filter((i) => i.chantier === c.id && !i.orphelin);
@@ -345,7 +349,8 @@ export function incoherences(data) {
       if (!["clos", "abandonne"].includes(col)) out.push(`${c.id} est ${col} mais n'a AUCUNE tâche : lui écrire des tâches dans le backlog, ou le clore`);
       continue;
     }
-    if (col === "en_cours" && !its.some((i) => BOUGE.has(i.statut))) {
+    const suivi = !opts.enCoursSpecSeulement || SPEC_RE.test(String(c.doc || ""));
+    if (col === "en_cours" && suivi && !its.some((i) => BOUGE.has(i.statut))) {
       out.push(`${c.id} est « en cours » mais ses ${its.length} tâches sont toutes à faire : passer celles qu'il traite en en_cours`);
     }
     const avance = its.filter((i) => ["en_cours", "fait"].includes(i.statut)).map((i) => i.id);
@@ -419,7 +424,7 @@ function main() {
   const unknown = [...new Set(data.items.map((i) => i.chantier).filter((c) => c && !known.has(c)))];
   console.log(`${data.chantiers.length} chantiers, ${data.items.length} tâches ; sans chantier : ${orphans.join(", ") || "aucune"}`);
   if (unknown.length) console.log(`ATTENTION rattachement vers un chantier absent de CHANTIERS.md : ${unknown.join(", ")}`);
-  const incs = incoherences(data);
+  const incs = incoherences(data, { specs: cfg.specs, enCoursSpecSeulement: !!(cfg.controle && cfg.controle.enCoursSpecSeulement) });
   for (const inc of incs) console.log(`INCOHÉRENCE ${inc}`);
   if (!args.check) {
     mkdirSync(dirname(OUT_JSON), { recursive: true });

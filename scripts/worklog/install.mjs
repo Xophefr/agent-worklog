@@ -43,7 +43,9 @@ function main() {
   mkdirSync(sd, { recursive: true });
   for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !["install.mjs", "sync-agents.mjs"].includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
 
-  // 3. Docs du projet : modèles posés seulement s'ils manquent.
+  // 3. Docs du projet : modèles posés seulement dans un projet NEUF (ni registre ni backlog). Un
+  // projet qui a déjà ses docs règle d'abord leurs chemins dans tracker.config.json : sans cela,
+  // un backlog modèle apparaissait à l'adresse par défaut, à côté du vrai.
   const modeles = [
     [join(SRC, "docs", "CHANTIERS.md"), at(dest, cfg, "chantiers")],
     [join(SRC, "docs", "chantiers", "backlog.md"), at(dest, cfg, "backlog")],
@@ -51,7 +53,8 @@ function main() {
   ];
   const neufs = !existsSync(modeles[0][1]) && !existsSync(modeles[1][1]);
   for (const [from, to] of modeles) {
-    if (existsSync(to) || (!neufs && to.endsWith("CH-01_exemple.md"))) { log("gardé", to); continue; }
+    if (existsSync(to)) { log("gardé", to); continue; }
+    if (!neufs) { log("absent", to); continue; }
     mkdirSync(dirname(to), { recursive: true });
     copyFileSync(from, to);
     log("créé", to);

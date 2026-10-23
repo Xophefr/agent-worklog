@@ -110,6 +110,12 @@ test("session : tout ou rien, suivi daté", () => {
 test("incohérences : chantier en cours sans tâche qui bouge, pas commencé qui avance", () => {
   const d = build();
   assert.ok(incoherences(d).some((t) => t.startsWith("CH-01")));
+  // controle.enCoursSpecSeulement : un chantier sans spec (antérieur au suivi) n'est pas tenu par ses tâches
+  const opts = { specs: "docs/chantiers", enCoursSpecSeulement: true };
+  assert.ok(incoherences(d, opts).some((t) => t.startsWith("CH-01")));
+  d.chantiers.find((c) => c.id === "CH-01").doc = "`docs/plans/ancien.md`";
+  assert.ok(!incoherences(d, opts).some((t) => t.startsWith("CH-01")));
+  assert.ok(incoherences(d).some((t) => t.startsWith("CH-01")));
   d.items.find((i) => i.id === "UI-01").statut = "en_cours";
   assert.ok(incoherences(d).some((t) => t.startsWith("CH-02")));
 });

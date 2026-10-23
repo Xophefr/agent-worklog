@@ -71,7 +71,7 @@ La commande copie dans le projet :
 | Les modèles | `docs/CHANTIERS.md`, `docs/chantiers/backlog.md`, spec d'exemple | ne les touche pas |
 | Les commandes npm | `package.json` (créé s'il manque) | n'écrase aucune commande existante |
 
-Relancer l'installation met donc l'outil à jour sans toucher aux données du projet. Il reste ensuite à [brancher l'agent de code](#brancher-un-agent-de-code) et à décrire les groupes du [relevé du code](#relevé-du-code).
+Relancer l'installation met donc l'outil à jour sans toucher aux données du projet. Dans un projet qui a déjà son registre et son backlog ailleurs qu'aux chemins par défaut, écrire d'abord `tracker.config.json` (au moins `chantiers`, `backlog` et `specs`) : l'installation ne pose alors aucun modèle. Il reste ensuite à [brancher l'agent de code](#brancher-un-agent-de-code) et à décrire les groupes du [relevé du code](#relevé-du-code).
 
 À commiter dans le projet : les trois fichiers Markdown, les specs **et** `docs/tracker/chantiers.json`, qui porte les statuts, les priorités et les notes. `code_stats.json` reste local (déjà dans `docs/tracker/.gitignore`).
 
@@ -309,6 +309,7 @@ powershell -ExecutionPolicy Bypass -File scripts/worklog/install-code-stats-task
 | `ui.accent` / `ui.accentSombre` | `#3538cd` / `#a4a6ff` | couleur d'accent, thème clair et sombre (viser 4,5:1 sur le fond) |
 | `ui.marque` | `DÉCISION` | mot qui marque une tâche « décision attendue » (accents et casse indifférents) |
 | `ui.echelle` | `125` | taille du texte du tableau, en % de celle du navigateur |
+| `controle.enCoursSpecSeulement` | `false` | `true` : « en cours sans tâche qui bouge » n'est signalé que pour un chantier dont la doc est une spec du dossier `specs` (un chantier plus ancien que le suivi peut avancer hors de ses tâches) |
 | `rattachements` | — | chantier par défaut des tâches d'un backlog non rangé par chantier : `{ "CH-04": "API-01 API-02" }` (liste séparée par des espaces, ou tableau) ; ne vaut que pour une tâche nouvelle ou sans rattachement |
 | `ui.marqueFiltre` / `ui.marqueKpi` | `Décision attendue` / `décisions attendues` | libellés du filtre et de l'indicateur |
 | `serveur.port` | `4173` | port de `npm run tracker` |
