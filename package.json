@@ -10,6 +10,7 @@
   "scripts": {
     "chantiers": "node scripts/worklog/chantiers-tracker.mjs",
     "tracker": "node scripts/worklog/serve.mjs",
+    "accueil": "node scripts/worklog/accueil.mjs",
     "code:stats": "node scripts/worklog/code-stats.mjs",
     "install-into": "node scripts/worklog/install.mjs",
     "agents:sync": "node scripts/worklog/sync-agents.mjs",

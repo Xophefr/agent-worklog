@@ -14,6 +14,8 @@ import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
 const UI_FILES = ["index.html", "app.js", "xlsx.js", "style.css", "save.php", ".gitignore"];
+// Restent dans ce dépôt : l'installation, l'accueil multi-projets et ce qui ne sert qu'à eux.
+const OUTIL_SEUL = ["install.mjs", "sync-agents.mjs", "VERSION", "accueil.mjs", "registre.mjs", "resume.mjs"];
 const SCRIPTS = { chantiers: "node scripts/worklog/chantiers-tracker.mjs", tracker: "node scripts/worklog/serve.mjs", "code:stats": "node scripts/worklog/code-stats.mjs" };
 
 function main() {
@@ -41,7 +43,7 @@ function main() {
   for (const f of UI_FILES) { copyFileSync(join(SRC, "docs", "tracker", f), join(ui, f)); log("copié", join(ui, f)); }
   const sd = join(dest, "scripts", "worklog");
   mkdirSync(sd, { recursive: true });
-  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !["install.mjs", "sync-agents.mjs", "VERSION"].includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
+  for (const f of readdirSync(HERE).filter((n) => !n.includes(".test.") && !OUTIL_SEUL.includes(n))) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }
   // La version installée reste dans le projet : on sait d'où l'on part à la mise à jour suivante.
   const version = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
   const vFile = join(sd, "VERSION");

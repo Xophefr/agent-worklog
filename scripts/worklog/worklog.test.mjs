@@ -2,7 +2,7 @@
 // enregistrement du tableau (patch.mjs et serveur), relevé de code.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
@@ -14,6 +14,7 @@ import { createTracker } from "./serve.mjs";
 import { loadConfig } from "./config.mjs";
 import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
 import { summarize } from "./resume.mjs";
+import { createAccueil } from "./accueil.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -251,4 +252,80 @@ test("résumé d'un projet : avancement, décisions, activité des 7 derniers jo
   const vide = summarize({ meta: {}, chantiers: [], items: [] }, { today: "2026-10-23", version: null, outil: "1.4.0" });
   assert.equal(vide.taches.pct, 0);
   assert.equal(vide.derniere, null);
+});
+
+test("accueil : liste, sert un projet, écrit dans le bon, refuse le reste", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-acc-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const projet = (nom, version) => {
+    const dir = join(tmp, nom);
+    mkdirSync(join(dir, "docs", "tracker"), { recursive: true });
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: nom }));
+    writeFileSync(join(dir, "docs", "tracker", "chantiers.json"), JSON.stringify(build()));
+    writeFileSync(join(dir, ".env"), "SECRET=1");
+    if (version) { mkdirSync(join(dir, "scripts", "worklog"), { recursive: true }); writeFileSync(join(dir, "scripts", "worklog", "VERSION"), version + "\n"); }
+    return dir;
+  };
+  const a = projet("Alpha", "1.3.0");
+  const b = projet("Beta", null);
+  const g = projet("Gamma", null);
+  const registry = join(tmp, "home", "projets.json");
+  const reg = { projets: [] };
+  [a, b, g].forEach((d) => addProject(reg, d));
+  saveRegistry(registry, reg);
+  rmSync(g, { recursive: true, force: true });
+
+  const srv = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "1.4.0", today: () => "2026-10-23" }).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  t.after(() => srv.close());
+  const base = `http://localhost:${srv.address().port}`;
+  const json = (u) => fetch(base + u).then((r) => r.json());
+
+  const liste = await json("/api/projets");
+  assert.equal(liste.outil, "1.4.0");
+  assert.deepEqual(liste.projets.map((p) => p.id), ["alpha", "beta", "gamma"]);
+  assert.equal(liste.projets[2].erreur, "dossier introuvable");
+  assert.equal(liste.projets[0].resume.nom, "Alpha");
+  assert.equal(liste.projets[0].resume.version, "1.3.0");
+  assert.equal(liste.projets[0].resume.aJour, false);
+
+  assert.equal((await fetch(`${base}/`)).status, 200);
+  assert.equal((await fetch(`${base}/p/alpha/`)).status, 200);
+  assert.equal((await fetch(`${base}/p/alpha`, { redirect: "manual" })).status, 301);
+  const data = await json("/p/alpha/chantiers.json");
+  assert.equal(data.meta.accueil.url, "/");
+  assert.deepEqual(data.meta.accueil.projets.map((p) => p.id), ["alpha", "beta", "gamma"]);
+  assert.equal(data.meta.ui.racine, "fichiers/");
+  assert.equal((await fetch(`${base}/p/alpha/fichiers/tracker.config.json`)).status, 200);
+  assert.equal((await fetch(`${base}/p/alpha/fichiers/.env`)).status, 404);
+  assert.equal((await fetch(`${base}/p/alpha/fichiers/%2e%2e/Beta/tracker.config.json`)).status, 404);
+  assert.equal((await fetch(`${base}/p/zzz/`)).status, 404);
+
+  const post = (u, body, headers = {}) => fetch(base + u, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const patch = (id, statut) => ({ patch: { items: [{ id, set: { statut }, base: { statut: "a_faire" } }] } });
+  const [ra, rb] = await Promise.all([post("/p/alpha/save.php", patch("API-01", "fait")), post("/p/beta/save.php", patch("API-02", "en_cours"))]);
+  assert.equal(ra.status, 200);
+  assert.equal(rb.status, 200);
+  const lire = (d) => JSON.parse(readFileSync(join(d, "docs", "tracker", "chantiers.json"), "utf8")).items;
+  assert.equal(lire(a).find((i) => i.id === "API-01").statut, "fait");
+  assert.equal(lire(a).find((i) => i.id === "API-02").statut, "a_faire");
+  assert.equal(lire(b).find((i) => i.id === "API-02").statut, "en_cours");
+  assert.equal(lire(b).find((i) => i.id === "API-01").statut, "a_faire");
+  assert.equal((await post("/p/alpha/save.php", patch("API-03", "fait"), { "Sec-Fetch-Site": "cross-site" })).status, 403);
+  assert.equal((await post("/p/alpha/save.php", patch("API-03", "fait"), { "Content-Type": "text/plain" })).status, 415);
+
+  assert.equal((await post("/api/projets", { dossier: tmp })).status, 400);
+  const d = projet("Delta", null);
+  const ajout = await post("/api/projets", { dossier: d });
+  assert.equal(ajout.status, 200);
+  assert.equal((await ajout.json()).projet.id, "delta");
+  assert.equal((await post("/api/projets/retirer", { id: "delta" })).status, 200);
+  assert.equal((await post("/api/projets/retirer", { id: "delta" })).status, 404);
+  assert.equal(loadRegistry(registry).projets.length, 3);
+
+  writeFileSync(registry, "{x");
+  const casse = await fetch(`${base}/api/projets`);
+  assert.equal(casse.status, 500);
+  assert.equal((await casse.json()).ok, false);
+  assert.equal(readFileSync(registry, "utf8"), "{x");
 });
