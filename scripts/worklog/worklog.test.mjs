@@ -13,6 +13,7 @@ import { exportMd } from "./export-md.mjs";
 import { ouvrirBase } from "./base/connexion.mjs";
 import { migrer, TABLES } from "./base/schema.mjs";
 import { creerDepot, importer } from "./base/depot.mjs";
+import { createBff } from "./bff.mjs";
 import { homedir } from "node:os";
 import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { applyPatch } from "./patch.mjs";
@@ -611,5 +612,76 @@ for (const [nom, url] of BASES) {
     const h = await depot.historique("repli", "tache", src.items[0].id);
     assert.equal(h[0].champ, "note");
     assert.equal(h[0].apres, "changée");
+  });
+}
+
+for (const [nom, url] of BASES) {
+  test(`BFF ${nom} : jetons, opérations, auteur remplacé, conflit, historique, export, import`, async (t) => {
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker"), outil: "2.0.0" }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => srv.close());
+    const b = `http://localhost:${srv.address().port}`;
+    const ji = await depot.creerJeton(null, "interface");
+    const appel = (chemin, { jeton = ji, corps, auteur, host } = {}) => {
+      const headers = { "Content-Type": "application/json" };
+      if (jeton) headers.Authorization = `Bearer ${jeton}`;
+      if (auteur) headers["X-Worklog-Auteur"] = encodeURIComponent(auteur);
+      if (host) headers.Host = host;
+      return fetch(b + chemin, corps === undefined ? { headers } : { method: "POST", headers, body: JSON.stringify(corps) });
+    };
+
+    assert.equal((await appel("/api/projets", { jeton: null })).status, 401);
+    const cree = await appel("/api/projets", { corps: { id: "a", nom: "Alpha" }, auteur: "Xophe" });
+    assert.equal(cree.status, 200);
+    const ja = (await cree.json()).jeton;
+    await appel("/api/projets", { corps: { id: "b", nom: "Beta" } });
+    assert.equal((await appel("/p/b/chantiers.json", { jeton: ja })).status, 403);
+    assert.equal((await appel("/p/a/chantiers.json", { jeton: "faux" })).status, 401);
+
+    const op = (projet, o, args, opts = {}) => appel(`/api/p/${projet}/operation`, { corps: { op: o, args, session: opts.session }, ...opts });
+    assert.equal((await op("a", "creerChantier", { titre: "API" }, { jeton: ja })).status, 400); // session manquante
+    const r1 = await (await op("a", "creerChantier", { titre: "API" }, { jeton: ja, session: "s1" })).json();
+    assert.equal(r1.resultat, "CH-01");
+    await op("a", "creerTache", { chantier: "CH-01", titre: "Lire", domaine: "API" }, { jeton: ja, session: "s1" });
+    await op("a", "modifierTache", { id: "API-01", champs: { statut: "fait" } }, { auteur: "Xophe" });
+    const r2 = await (await op("a", "session", { statuts: [["API-01", "en_cours"]], suivis: [["API-01", "reprise"]] }, { jeton: ja, session: "s2" })).json();
+    const st = r2.changements.find((c) => c.champ === "statut");
+    assert.deepEqual([st.avant, st.apres, st.auteurAvant.nom, st.auteurAvant.type], ["fait", "en_cours", "Xophe", "interface"]);
+    assert.equal((await op("a", "modifierTache", { id: "API-01", champs: { statut: "fini" } }, { jeton: ja, session: "s2" })).status, 400);
+
+    const data = await (await appel("/p/a/chantiers.json")).json();
+    assert.equal(data.meta.mode, "base");
+    assert.equal(data.items[0].statut, "en_cours");
+    assert.equal(data.specs, undefined);
+    const patch = await appel("/p/a/save.php", { corps: { patch: { items: [{ id: "API-01", set: { statut: "fait" }, base: { statut: "a_faire" } }] } } });
+    assert.equal((await patch.json()).conflicts.length, 1);
+
+    const h = await (await appel("/api/p/a/historique?objet=tache&id=API-01")).json();
+    assert.equal(h.lignes[0].auteur, "s2");
+    const { request } = await import("node:http");
+    const hote = await new Promise((ok) => request({ host: "127.0.0.1", port: srv.address().port, path: "/api/p/a/historique?objet=tache&id=API-01", headers: { Host: "evil.example", Authorization: `Bearer ${ji}` } }, (r) => { r.resume(); ok(r.statusCode); }).end());
+    assert.equal(hote, 403);
+
+    await op("a", "specs", { specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] }, { jeton: ja, session: "s1" });
+    await op("a", "modifierChantier", { id: "CH-01", champs: { doc: "`docs/chantiers/CH-01_api.md`" } }, { jeton: ja, session: "s1" });
+    await op("a", "specs", { specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] }, { jeton: ja, session: "s1" });
+    assert.equal((await (await appel("/p/a/chantiers.json")).json()).chantiers[0].lots.length, 2);
+    assert.equal((await (await appel("/api/p/a/spec?chemin=docs/chantiers/CH-01_api.md")).json()).texte, SPEC);
+
+    const ex = await (await appel("/api/p/a/export")).json();
+    assert.match(ex.chantiers, /CH-01/);
+    assert.match(ex.backlog, /API-01/);
+
+    const imp = await appel("/api/import", { corps: { id: "c", nom: "Gamma", data: build(), journal: { consigne: "", entrees: [] }, textes: {}, specs: [] } });
+    assert.equal(imp.status, 200);
+    const jc = (await imp.json()).jeton;
+    assert.equal((await appel("/p/c/chantiers.json", { jeton: jc })).status, 200);
+    assert.equal((await appel("/api/import", { jeton: ja, corps: { id: "d", nom: "D", data: build() } })).status, 403);
+    const liste = await (await appel("/api/projets")).json();
+    assert.deepEqual(liste.projets.map((p) => p.id), ["a", "b", "c"]);
+    assert.equal(liste.projets[2].resume.taches.base, 4);
   });
 }
