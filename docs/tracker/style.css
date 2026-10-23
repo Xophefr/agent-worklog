@@ -385,6 +385,7 @@ body[data-view="journal"] .filters { display: none; }
 form.edit .fld { margin-bottom: .75rem; }
 form.edit .fld > label { display: block; font-size: .8125rem; font-weight: 700; color: var(--muted); margin-bottom: .25rem; }
 form.edit input:not([type]), form.edit input[type="text"], form.edit select, form.edit textarea { width: 100%; min-height: 2.75rem; padding: .375rem .5rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); }
+form.edit textarea { min-height: 6.5rem; resize: vertical; }
 form.edit .chk-line { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.75rem; font-weight: 600; }
 form.edit .chk-line input, .radio-line input { width: 1.125rem; height: 1.125rem; accent-color: var(--accent); }
 .fld-err, .form-err { color: var(--p0); font-weight: 600; font-size: .8125rem; margin: .25rem 0 0; }
