@@ -6,6 +6,23 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 1.4.0 · 2026-10-23
+
+### Ajouté
+
+- **Accueil multi-projets** : `npm run accueil` (dans ce dépôt) sert `http://localhost:4170/`, une carte par projet suivi : pourcentage de tâches faites, chantiers en cours, tâches à vérifier, décisions attendues, chantiers bloqués, tâches bougées dans les 7 derniers jours. La carte ouvre le tableau du projet à `/p/<id>/`, avec un lien « Mes projets » et une liste pour passer à un autre projet. Ajout d'un projet depuis la page ou par `accueil.mjs ajouter <dossier>` ; retrait de la carte (aucun fichier du projet touché).
+- **Registre des projets** : `~/.agent-worklog/projets.json`, personnel, hors de tout dépôt. `install.mjs` y inscrit le projet qu'il installe.
+
+### Modifié
+
+- **Nouveau design** du tableau, en clair et en sombre : cartes à ombre douce, liseré à la couleur du projet, chiffres à chasse fixe, contrastes vérifiés dans les deux thèmes.
+- **Téléphone** : indicateurs deux par ligne, filtres repliés derrière un bouton « Filtres », kanban une colonne à la fois avec un sélecteur.
+- Les garde-fous HTTP du serveur sont dans `scripts/worklog/http.mjs`, partagé par `serve.mjs` et l'accueil.
+
+### À faire dans un projet
+
+Rien : relancer l'installation (elle inscrit aussi le projet à l'accueil).
+
 ## 1.3.0 · 2026-10-23
 
 ### Modifié

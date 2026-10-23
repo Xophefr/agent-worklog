@@ -5,7 +5,8 @@
 Les agents de code (Claude Code, Codex, Cursor…) avancent vite, et l'état du projet se perd entre deux sessions : ce qui est fait, ce qui est seulement livré, ce qui attend une décision. agent-worklog donne au projet un registre unique, en Markdown, versionné avec le code. Les agents l'écrivent à chaque étape ; le responsable du projet le lit sur un tableau qui se met à jour seul mais sur lequel il peut intervenir.
 
 - **Trois fichiers Markdown** dans le dépôt : l'état des chantiers, le backlog des tâches, une spec par chantier.
-- **Un tableau local** à cinq vues (priorisation, kanban, tâches, terminés, code), sans dépendance, accessible au clavier, utilisable sur téléphone.
+- **Un tableau local** à cinq vues (priorisation, kanban, tâches, terminés, code), sans dépendance, accessible au clavier, utilisable sur téléphone, en clair et en sombre.
+- **Un accueil multi-projets** : une carte par projet suivi, avec son avancement et ce qui vous attend, et le tableau de chacun à la même adresse.
 - **Un script** que l'agent appelle pour passer une tâche en cours, livrée ou faite, avec une phrase de suivi datée.
 - **Un relevé des lignes de code et de tests**, jour après jour.
 - **Des instructions prêtes à copier** pour Claude Code, Codex et les autres agents.
@@ -224,6 +225,7 @@ Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d
 | `npm run chantiers -- --session <nom> --chantier ID=CH-xx` | rattache une tâche à un autre chantier |
 | `npm run chantiers -- --session <nom> --lot ID=<n>` | place une tâche dans un lot de la spec |
 | `npm run tracker` | sert le tableau sur `http://localhost:4173/` (`-- --port 8080` pour changer) |
+| `npm run accueil` | (dans ce dépôt) sert l'accueil de tous les projets inscrits sur `http://localhost:4170/` |
 | `npm run code:stats` | ajoute le relevé du jour à l'onglet « Code » (`-- --check` : affiche seulement) |
 | `npm run agents:sync` | régénère le bloc `AGENTS.md` depuis le skill Claude Code (dans ce dépôt) |
 | `npm test` | tests de l'outil |
@@ -255,6 +257,22 @@ Chaque chantier s'ouvre dans une fiche : état, prochaine action, décisions, li
 **Export Excel** : le bouton de téléchargement, en haut à droite, enregistre un classeur `.xlsx` à deux feuilles, « Chantiers » (état, priorité, avancement, prochaine action, décisions, preuve, note) et « Tâches » (statut, chantier, lot, attendu, dernier suivi, note). Il porte tout le registre, quels que soient les filtres affichés : chaque feuille a son en-tête figé et un filtre automatique. Le fichier est écrit dans le navigateur, sans dépendance, et s'ouvre dans Excel, LibreOffice et Google Sheets.
 
 Accessibilité : navigation complète au clavier, fiche en boîte de dialogue modale, contrastes de 4,5:1 au moins dans les thèmes clair et sombre, tailles en `rem` (zoom à 200 %). Sur téléphone, les tâches passent en cartes.
+
+Sur téléphone, les indicateurs passent deux par ligne, les filtres se replient derrière un bouton « Filtres » (la recherche reste visible) et le kanban montre une colonne à la fois, choisie au-dessus.
+
+### L'accueil multi-projets
+
+Depuis ce dépôt, `npm run accueil` ouvre `http://localhost:4170/` : une carte par projet suivi, avec le pourcentage de tâches faites, les chantiers en cours, les tâches à vérifier, les décisions qui vous attendent et les tâches bougées dans les 7 derniers jours. Un clic sur la carte ouvre le tableau du projet, à l'adresse `/p/<id>/`, avec un lien « Mes projets » et une liste pour passer à un autre projet.
+
+Les projets sont inscrits dans un fichier personnel, hors de tout dépôt : `~/.agent-worklog/projets.json`. `install.mjs` y inscrit le projet qu'il installe ; on peut aussi inscrire un dossier depuis la carte « Ajouter un projet », ou en ligne de commande :
+
+```bash
+node scripts/worklog/accueil.mjs ajouter ../mon-projet [--id mon-id]
+node scripts/worklog/accueil.mjs retirer mon-id      # retire la carte, ne touche aucun fichier du projet
+node scripts/worklog/accueil.mjs liste
+```
+
+L'identifiant (`/p/<id>/`) est tiré du nom du projet (`projet` dans `tracker.config.json`) et ne change plus une fois inscrit. L'accueil sert toujours l'interface de ce dépôt, la plus récente, avec les données de chaque projet ; une carte signale un projet dont l'outil installé est plus ancien (« relancer install.mjs »). Il écrit dans un projet exactement comme le tableau seul : même protocole, mêmes garde-fous, une file d'écriture par projet. Il n'écoute que sur `127.0.0.1`.
 
 ### Deux façons de le servir
 
@@ -358,10 +376,14 @@ agent-worklog/
 │   ├── chantiers/
 │   │   ├── backlog.md            modèle : backlog des tâches
 │   │   └── CH-01_exemple.md      modèle : spec d'un chantier, découpage en lots
-│   └── tracker/                  le tableau (HTML, CSS, JS sans dépendance, export xlsx.js) et save.php
+│   └── tracker/                  le tableau (HTML, CSS, JS sans dépendance, export xlsx.js), save.php et l'accueil (accueil.html, accueil.js)
 ├── scripts/worklog/
 │   ├── chantiers-tracker.mjs     npm run chantiers
 │   ├── serve.mjs                 npm run tracker
+│   ├── accueil.mjs               npm run accueil (accueil multi-projets)
+│   ├── registre.mjs              projets inscrits (~/.agent-worklog/projets.json)
+│   ├── resume.mjs                stats d'un projet pour sa carte
+│   ├── http.mjs                  garde-fous HTTP communs aux deux serveurs
 │   ├── patch.mjs                 enregistrement du tableau (verrou par champ)
 │   ├── code-stats.mjs            npm run code:stats
 │   ├── config.mjs                lecture de tracker.config.json
