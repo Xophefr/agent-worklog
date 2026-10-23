@@ -372,7 +372,8 @@ agent-worklog/
 │   ├── claude-code/              skill et bloc CLAUDE.md
 │   └── codex/                    bloc AGENTS.md
 ├── tracker.config.json
-└── CHANGELOG.md                  nouveautés de chaque version
+├── CHANGELOG.md                  nouveautés de chaque version
+└── CONTRIBUTING.md               contribuer
 ```
 
 ## Licence

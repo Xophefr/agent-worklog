@@ -4,6 +4,12 @@ Chaque version de l'outil, la plus récente en tête. Le numéro suit [SemVer](h
 
 Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>` depuis ce dépôt (voir le [README](README.md#mettre-à-jour)).
 
+Publier une version : renommer « À venir » en `## x.y.z · date`, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
+
+## À venir
+
+Rien pour l'instant.
+
 ## 1.1.0 · 2026-10-23
 
 ### Ajouté

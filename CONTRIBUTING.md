@@ -29,7 +29,9 @@ Pour une faille de sécurité, n'ouvrez pas d'issue publique : passez par l'ongl
    npm run agents:sync
    ```
 
-5. Ouvrez une pull request vers `main` en expliquant le problème corrigé et la façon dont vous l'avez vérifié.
+5. Décrivez le changement dans [`CHANGELOG.md`](CHANGELOG.md), section « À venir » en tête du fichier (Ajouté, Modifié, Corrigé), et ce qu'un projet déjà installé doit adapter s'il y a lieu.
+
+6. Ouvrez une pull request vers `main` en expliquant le problème corrigé et la façon dont vous l'avez vérifié.
 
 Une PR courte, centrée sur un seul sujet, se relit et se fusionne plus vite.
 
