@@ -1,11 +1,13 @@
 // Installe (ou met à jour) le suivi des chantiers dans un autre projet.
 //
 //   node scripts/worklog/install.mjs ../mon-projet
+//   node scripts/worklog/install.mjs ../mon-projet --mode base --bff http://localhost:4180
 //
 // Copie les fichiers de l'OUTIL (tableau et scripts), toujours remplacés : relancer la commande
 // met à jour. Ne remplace JAMAIS ce qui appartient au projet : tracker.config.json, CHANTIERS.md,
 // backlog, specs, chantiers.json. Ajoute les commandes npm manquantes au package.json du projet
 // (le crée s'il n'existe pas), sans toucher à celles qui existent.
+import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,6 +104,16 @@ function main() {
     if (reg.projets.length > n) { saveRegistry(file, reg); console.log(`  inscrit   accueil : ${p.id}`); }
     else console.log(`  gardé     accueil : ${p.id}`);
   } catch (e) { console.log(`  ATTENTION : non inscrit à l'accueil (${e.message})`); }
+
+  // 6. Mode base (--mode base --bff <url>) : le projet est importé dans le BFF lié (ses .md, ou les
+  // modèles d'un projet neuf) ; son réglage passe en mode base et son jeton est gardé hors du dépôt.
+  const argv = process.argv.slice(3);
+  const opt = (n) => { const k = argv.indexOf(n); return k >= 0 ? argv[k + 1] : undefined; };
+  if (opt("--mode") === "base" && loadConfig(dest).mode !== "base") {
+    if (!opt("--bff")) { console.error("ERREUR : --mode base demande --bff <url du BFF>"); return 2; }
+    const r = spawnSync(process.execPath, [join(HERE, "chantiers-tracker.mjs"), "--root", dest, "--importer", "--bff", opt("--bff")], { encoding: "utf8", stdio: "inherit" });
+    if (r.status !== 0) { console.error("ERREUR : l'import vers le BFF a échoué (voir ci-dessus) ; le projet reste en mode fichiers"); return 1; }
+  }
 
   console.log(`\nSuite, dans ${dest} :\n  npm run chantiers      # construit ${relative(dest, join(ui, "chantiers.json")).replaceAll("\\", "/")}\n  npm run tracker        # ouvre le tableau sur http://localhost:${cfg.serveur.port}/\n  npm run code:stats     # premier relevé de l'onglet « Code » (régler code.groupes dans ${CONFIG_FILE})\n\nTous les projets inscrits, depuis ce dépôt :\n  npm run accueil        # http://localhost:4170/`);
   return 0;

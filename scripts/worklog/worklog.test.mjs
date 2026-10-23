@@ -694,7 +694,7 @@ for (const [nom, url] of BASES) {
     const depot = creerDepot(base);
     const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(0, "127.0.0.1");
     await new Promise((r) => srv.once("listening", r));
-    t.after(() => srv.close());
+    t.after(() => { if (srv.listening) srv.close(); });
     const bff = `http://localhost:${srv.address().port}`;
     const tmp = mkdtempSync(join(tmpdir(), "wl-cli-"));
     t.after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -716,7 +716,13 @@ for (const [nom, url] of BASES) {
     assert.equal(r.code, 0, r.out);
     const cfg = JSON.parse(readFileSync(join(dir, "tracker.config.json"), "utf8"));
     assert.deepEqual([cfg.mode, cfg.bff, cfg.projetBase], ["base", bff, "demo-base"]);
-    assert.ok(JSON.parse(readFileSync(join(home, "jetons.json"), "utf8"))["demo-base"]);
+    assert.ok(JSON.parse(readFileSync(join(home, "jetons.json"), "utf8"))[`${new URL(bff).origin}|demo-base`]);
+    // Le jeton ne part pas vers une autre adresse écrite dans le réglage du dépôt.
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ ...cfg, bff: "http://127.0.0.2:9" }));
+    const fuite = await run("taches");
+    assert.equal(fuite.code, 2);
+    assert.match(fuite.out, /aucun jeton/);
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify(cfg));
     assert.equal((await lire()).items.length, 4);
 
     r = await run();
@@ -762,15 +768,93 @@ for (const [nom, url] of BASES) {
 
     // Review Focus 3 : BFF injoignable -> code 1, message clair, rien d'écrit en local.
     const avant = readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8");
-    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ ...cfg, bff: "http://localhost:1" }));
+    await new Promise((ok) => srv.close(ok));
     r = await run("--session", "s1", "--statut", "API-01=fait");
     assert.equal(r.code, 1);
     assert.match(r.out, /BFF injoignable/);
     assert.equal(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8"), avant);
-    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify(cfg));
     rmSync(join(home, "jetons.json"));
     r = await run("taches");
     assert.equal(r.code, 2);
     assert.match(r.out, /jeton/);
+  });
+}
+
+for (const [nom, url] of BASES) {
+  test(`accueil et mode base (${nom}) : cartes des deux modes, relais signé, passage en base, installation, BFF arrêté`, async (t) => {
+    const { execFile } = await import("node:child_process");
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const bffSrv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(0, "127.0.0.1");
+    await new Promise((r) => bffSrv.once("listening", r));
+    t.after(() => { if (bffSrv.listening) bffSrv.close(); });
+    const bff = `http://localhost:${bffSrv.address().port}`;
+    const tmp = mkdtempSync(join(tmpdir(), "wl-accb-"));
+    t.after(() => rmSync(tmp, { recursive: true, force: true }));
+    const home = join(tmp, "home");
+    mkdirSync(home);
+    const ji = await depot.creerJeton(null, "interface");
+    writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [bff]: ji }));
+    writeFileSync(join(home, "auteur"), "Xophe\n");
+    const projetMd = (nomP) => {
+      const d = join(tmp, nomP);
+      mkdirSync(join(d, "docs", "chantiers"), { recursive: true });
+      writeFileSync(join(d, "tracker.config.json"), JSON.stringify({ projet: nomP }));
+      writeFileSync(join(d, "docs", "CHANTIERS.md"), CHANTIERS);
+      writeFileSync(join(d, "docs", "chantiers", "backlog.md"), BACKLOG);
+      mkdirSync(join(d, "docs", "tracker"), { recursive: true });
+      writeFileSync(join(d, "docs", "tracker", "chantiers.json"), JSON.stringify(build()));
+      cpSync(join(ROOT, "scripts", "worklog"), join(d, "scripts", "worklog"), { recursive: true, filter: (s) => !s.includes("node_modules") });
+      return d;
+    };
+    const a = projetMd("Alpha");
+    const c = projetMd("Gamma");
+    await depot.creerProjet({ id: "beta", nom: "Beta" }, { nom: "x", type: "interface" });
+    const registry = join(home, "projets.json");
+    const reg = { projets: [] };
+    addProject(reg, a);
+    addProject(reg, c);
+    reg.projets.push({ id: "beta", type: "base", bff, projet: "beta" });
+    saveRegistry(registry, reg);
+    const acc = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "2.0.0" }).listen(0, "127.0.0.1");
+    await new Promise((r) => acc.once("listening", r));
+    t.after(() => acc.close());
+    const A = `http://localhost:${acc.address().port}`;
+    const post = (u, body, h = {}) => fetch(A + u, { method: "POST", headers: { "Content-Type": "application/json", ...h }, body: JSON.stringify(body) });
+
+    let liste = await (await fetch(`${A}/api/projets`)).json();
+    assert.equal(liste.projets.find((p) => p.id === "alpha").resume.nom, "Alpha");
+    assert.equal(liste.projets.find((p) => p.id === "beta").resume.nom, "Beta");
+    const db = await (await fetch(`${A}/p/beta/chantiers.json`)).json();
+    assert.equal(db.meta.mode, "base");
+    assert.equal(db.meta.accueil.url, "/");
+    const op = await post("/p/beta/api/operation", { op: "creerChantier", args: { titre: "Relayé" } });
+    assert.equal(op.status, 200, await op.clone().text());
+    const h = await depot.historique("beta", "chantier", "CH-01");
+    assert.deepEqual([h[0].auteur, h[0].type_auteur], ["Xophe", "interface"]);
+    assert.equal((await post("/p/beta/api/operation", { op: "creerChantier", args: { titre: "x" } }, { "Sec-Fetch-Site": "cross-site" })).status, 403);
+    assert.equal((await post("/p/beta/save.php", { patch: { chantiers: [{ id: "CH-01", set: { note: "n" }, base: { note: "" } }] } })).status, 200);
+    assert.equal((await (await fetch(`${A}/p/beta/api/historique?objet=chantier&id=CH-01`)).json()).lignes[0].champ, "note");
+
+    // Passage en base d'un projet en mode fichiers : import, puis relais.
+    const pass = await post("/api/projets/passer-en-base", { id: "gamma" });
+    assert.equal(pass.status, 200, await pass.clone().text());
+    assert.equal(JSON.parse(readFileSync(join(c, "tracker.config.json"), "utf8")).mode, "base");
+    assert.equal((await (await fetch(`${A}/p/gamma/chantiers.json`)).json()).meta.mode, "base");
+
+    // Installation en mode base d'un dossier neuf.
+    const neuf = join(tmp, "Delta");
+    mkdirSync(neuf);
+    const inst = await new Promise((ok) => execFile(process.execPath, [join(ROOT, "scripts", "worklog", "install.mjs"), neuf, "--mode", "base", "--bff", bff], { env: { ...process.env, AGENT_WORKLOG_HOME: home }, encoding: "utf8" }, (e, o, s) => ok({ code: e ? e.code : 0, out: o + s })));
+    assert.equal(inst.code, 0, inst.out);
+    assert.equal(JSON.parse(readFileSync(join(neuf, "tracker.config.json"), "utf8")).mode, "base");
+    assert.ok((await depot.projets()).some((p) => p.id === "delta"));
+
+    // Review Focus 3 : BFF arrêté -> carte d'erreur, les autres intactes.
+    await new Promise((r) => bffSrv.close(r));
+    liste = await (await fetch(`${A}/api/projets`)).json();
+    assert.match(liste.projets.find((p) => p.id === "beta").erreur, /BFF injoignable/);
+    assert.equal(liste.projets.find((p) => p.id === "alpha").resume.nom, "Alpha");
   });
 }
