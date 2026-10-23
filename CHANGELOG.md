@@ -4,11 +4,17 @@ Chaque version de l'outil, la plus récente en tête. Le numéro suit [SemVer](h
 
 Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>` depuis ce dépôt (voir le [README](README.md#mettre-à-jour)).
 
-Publier une version : renommer « À venir » en `## x.y.z · date`, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
+Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
-## À venir
+## 1.3.0 · 2026-10-23
 
-Rien pour l'instant.
+### Modifié
+
+- **L'onglet « Tableau » est le kanban des tâches**, et plus celui des chantiers : colonnes À faire, En cours, À vérifier, Fait. Les chantiers fermés passaient le plus souvent en « clos » et n'apparaissaient jamais dans la colonne « Terminé » ; ils restent dans « Terminés & clos », les chantiers ouverts dans « Priorisation ». Glisser une carte dans une autre colonne change le statut de la tâche (au clavier : la liste Statut de la carte). Les filtres des tâches s'appliquent (chantier, lot, domaine, priorité, recherche). Chaque colonne montre 30 cartes, « Afficher les N autres » donne la suite ; « Fait » met les plus récentes en tête (date du suivi). Les tâches abandonnées restent dans l'onglet « Tâches ».
+
+### À faire dans un projet
+
+Rien : relancer l'installation.
 
 ## 1.2.0 · 2026-10-23
 

@@ -245,7 +245,7 @@ npm run chantiers -- --session api-pagination \
 | Vue | Contenu |
 |---|---|
 | **Priorisation** | chantiers ouverts par priorité (P0 à P3), réordonnables au glisser-déposer ou au clavier |
-| **Tableau** | kanban par état : pas commencé, en cours, bloqué, terminé |
+| **Tableau** | kanban des tâches : à faire, en cours, à vérifier, fait ; une carte se glisse d'une colonne à l'autre (ou sa liste Statut au clavier) ; 30 cartes par colonne, la suite sur demande |
 | **Tâches** | toutes les tâches, filtrables et triables ; statut, priorité, chantier, lot et note modifiables sur place |
 | **Terminés & clos** | chantiers fermés, avec leur preuve |
 | **Code** | lignes de code et de tests par groupe, avec l'historique |

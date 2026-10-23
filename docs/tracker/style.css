@@ -94,7 +94,8 @@ a { color: var(--accent); text-underline-offset: .15em; }
 .filters .search svg { position: absolute; left: .5625rem; color: var(--muted); width: 1rem; height: 1rem; }
 .filters .search input { padding-left: 1.875rem; width: 18rem; max-width: 80vw; }
 .filters .chk input { width: 1.125rem; height: 1.125rem; accent-color: var(--accent); }
-body[data-view="items"] .only-ch, body:not([data-view="items"]) .only-items { display: none; }
+/* Tâches et Tableau (kanban des tâches) portent les filtres de tâches ; les autres vues, ceux des chantiers. */
+body:is([data-view="items"], [data-view="board"]) .only-ch, body:not([data-view="items"]):not([data-view="board"]) .only-items { display: none; }
 /* L'onglet Code ne porte ni chantier ni tache : aucun filtre ne s'y applique. */
 body[data-view="code"] .filters { display: none; }
 
@@ -136,8 +137,16 @@ main { max-width: 100rem; margin: 0 auto; padding: .25rem 1.5rem 3rem; }
 .card:hover, .card:focus-within { border-color: var(--accent); }
 .card.P0 { border-left-color: var(--p0); } .card.P1 { border-left-color: var(--p1); } .card.P2 { border-left-color: var(--p2); }
 .card .meta { display: flex; gap: .375rem; align-items: center; margin-bottom: .25rem; }
-.card a { display: block; font-size: .875rem; color: var(--text); text-decoration: none; }
+.card > a { display: block; font-size: .875rem; color: var(--text); text-decoration: none; }
 .card a:hover { text-decoration: underline; }
+.card { cursor: grab; }
+.card.dragging { opacity: .45; }
+.card .meta { flex-wrap: wrap; }
+.card .meta .ch { margin-left: auto; font-size: .75rem; color: var(--muted); text-decoration: none; }
+.card select { margin-top: .375rem; width: 100%; min-height: 2.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: .375rem; padding: .25rem .5rem; color: var(--text); }
+.col.drop-on { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.col .more { width: 100%; min-height: 2.75rem; border: 1px dashed var(--border); border-radius: var(--radius); background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: .8125rem; }
+.col .more:hover { border-color: var(--accent); }
 
 table.items { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); font-size: .875rem; }
 .items caption { text-align: left; color: var(--muted); font-size: .8125rem; padding: 0 0 .5rem; }

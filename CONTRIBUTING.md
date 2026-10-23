@@ -29,7 +29,7 @@ Pour une faille de sécurité, n'ouvrez pas d'issue publique : passez par l'ongl
    npm run agents:sync
    ```
 
-5. Décrivez le changement dans [`CHANGELOG.md`](CHANGELOG.md), section « À venir » en tête du fichier (Ajouté, Modifié, Corrigé), et ce qu'un projet déjà installé doit adapter s'il y a lieu.
+5. Décrivez le changement dans la pull request (Ajouté, Modifié, Corrigé), et ce qu'un projet déjà installé doit adapter s'il y a lieu. [`CHANGELOG.md`](CHANGELOG.md) ne décrit que ce qui est livré : sa section est écrite à la publication de la version qui contient le changement.
 
 6. Ouvrez une pull request vers `main` en expliquant le problème corrigé et la façon dont vous l'avez vérifié.
 

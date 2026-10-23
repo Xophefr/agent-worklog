@@ -6,8 +6,9 @@
  * rattachement / lot / note des taches. L'etat d'un chantier vient de docs/CHANTIERS.md ;
  * ses lots viennent de la section « Decoupage » de sa spec (une tache y est
  * rattachee quand la ligne du lot la nomme, `lot_spec`) ; le choix fait ici (`lot`) prime.
- * Accessibilite : chaque chantier s'ouvre par un vrai lien, le glisser-deposer a son
- * equivalent clavier (boutons Monter / Descendre), le panneau est une boite de dialogue
+ * Accessibilite : chaque chantier et chaque tache s'ouvrent par un vrai lien, le glisser-deposer
+ * a son equivalent clavier (boutons Monter / Descendre des chantiers, liste Statut des cartes
+ * du kanban), le panneau est une boite de dialogue
  * modale (le reste de la page est rendu inerte, le focus revient au declencheur).
  */
 (() => {
@@ -166,18 +167,32 @@
     }).join('') + '<p class="count">Ordonner : glisser-déposer, ou boutons Monter / Descendre (clavier). La priorité se change aussi dans la fiche du chantier. L\'état vient de <code>docs/CHANTIERS.md</code> (relancer <code>npm run chantiers</code> après une mise à jour).</p>';
   }
 
+  // Kanban des TACHES (les chantiers ont la priorisation et « Terminés & clos »). Une colonne
+  // montre PAR_COL cartes, la suite a la demande : « Fait » en compte des centaines sur un
+  // projet ancien. Fait : la plus recente d'abord (date du suivi) ; ailleurs : par priorite.
+  // Une carte deplacee ici passe en tete de sa colonne, sinon elle disparaitrait sous le pli.
+  const BOARD = ['a_faire', 'en_cours', 'a_verifier', 'fait'];
+  const PAR_COL = 30;
+  const colsOuvertes = new Set();  // colonnes depliees (memoire de la page seulement)
+  const bouges = [];               // taches deplacees dans cette page, la derniere en tete
+  const suiviJour = (i) => (/^\d{4}-\d{2}-\d{2}/.exec(i.suivi || '') || [''])[0];
   function renderBoard() {
-    const cols = ['pas_commence', 'en_cours', 'bloque', 'termine'];
-    const list = data.chantiers.filter(chMatch);
-    const ord = (a, b) => PRIOS.indexOf(a.priorite) - PRIOS.indexOf(b.priorite) || a.rang - b.rang;
-    return `<div class="board">${cols.map((col) => {
-      const cs = list.filter((c) => c.colonne === col).sort(ord);
-      return `<section class="col" aria-labelledby="c-${col}"><h2 id="c-${col}"><span>${COLS[col]}</span><span>${cs.length}</span></h2>${cs.map((c) => {
-        const n = progress(c.id);
-        return `<article class="card ${esc(c.priorite)}" data-id="${esc(c.id)}">
-          <div class="meta"><span class="mono">${esc(c.id)}</span>${prio(c.priorite)}${n.total ? `<span class="prog">${progText(n)}</span>` : ''}</div>
-          <a href="#${esc(c.id)}"><span class="sr">${esc(c.id)} : </span>${esc(plain(c.titre))}</a>${n.total ? bar(n) : ''}</article>`;
-      }).join('')}</section>`;
+    const list = data.items.filter(itMatch);
+    const rec = (i) => { const k = bouges.indexOf(i.id); return k < 0 ? Infinity : k; };
+    const byPrio = (a, b) => PRIOS.indexOf(a.priorite) - PRIOS.indexOf(b.priorite) || a.id.localeCompare(b.id, 'fr', { numeric: true });
+    const ord = (col) => (a, b) => (rec(a) - rec(b) || 0)
+      || (col === 'fait' ? suiviJour(b).localeCompare(suiviJour(a)) : 0) || byPrio(a, b);
+    const ab = list.filter((i) => i.statut === 'abandonne').length;
+    return `<p class="count" role="status">${list.length - ab} tâche(s)${ab ? `, sans les ${ab} abandonnée(s) (onglet Tâches)` : ''}. Changer le statut : glisser la carte dans une autre colonne, ou choisir dans sa liste.</p>
+      <div class="board">${BOARD.map((col) => {
+      const all = list.filter((i) => i.statut === col).sort(ord(col));
+      const cs = colsOuvertes.has(col) ? all : all.slice(0, PAR_COL);
+      const reste = all.length - cs.length;
+      return `<section class="col" data-statut="${col}" aria-labelledby="c-${col}"><h2 id="c-${col}"><span>${STATUTS[col]}</span><span>${all.length}</span></h2>${cs.map((i) => `<article class="card ${esc(i.priorite)}" data-item="${esc(i.id)}" draggable="true">
+          <div class="meta"><span class="mono">${esc(i.id)}</span>${prio(i.priorite)}${i.decision ? pill('decision', UI().marque || 'DÉCISION', 'attend') : ''}${i.chantier ? `<a href="#${esc(i.chantier)}" class="mono ch"><span class="sr">chantier </span>${esc(i.chantier)}</a>` : ''}</div>
+          <a href="#item/${esc(i.id)}"><span class="sr">${esc(i.id)} : </span>${esc(plain(i.titre))}</a>
+          <select data-f="statut" aria-label="Statut de ${esc(i.id)}">${options(STATUTS, i.statut)}</select></article>`).join('')}
+        ${reste ? `<button type="button" class="more" data-more="${col}">Afficher les ${reste} autres</button>` : ''}</section>`;
     }).join('')}</div>`;
   }
 
@@ -435,6 +450,7 @@
     if (!i) return;
     i[f] = f === 'chantier' || f === 'lot' ? (v || null) : v;
     mark('items', id, f);
+    if (f === 'statut') { if (bouges.includes(id)) bouges.splice(bouges.indexOf(id), 1); bouges.unshift(id); }
     if (f === 'chantier') { i.lot = null; mark('items', id, 'lot'); }  // un lot n'a de sens que dans son chantier
     changed(f !== 'note');
   }
@@ -644,7 +660,16 @@
       const again = $(`button[data-sort="${sort.k}"]`); if (again) again.focus();
       return;
     }
+    const more = e.target.closest('button[data-more]');
+    if (more) {
+      const col = more.dataset.more;
+      colsOuvertes.add(col); render();
+      const next = $(`.col[data-statut="${col}"] .card:nth-of-type(${PAR_COL + 1}) > a`); if (next) next.focus();
+      return;
+    }
     if (e.target.closest('select, input, a, button')) return;
+    const tache = e.target.closest('.card[data-item]');
+    if (tache) { location.hash = 'item/' + tache.dataset.item; return; }
     const card = e.target.closest('[data-id]');  // confort souris : toute la ligne ouvre la fiche (le lien reste la voie clavier)
     if (card) location.hash = card.dataset.id;
   });
@@ -657,17 +682,34 @@
   main.addEventListener('change', (e) => { if (e.target.dataset.f !== 'note') onField(e); });
   main.addEventListener('input', (e) => { if (e.target.dataset.f === 'note') onField(e); });
 
-  // glisser-deposer (vue priorisation) ; equivalent clavier : boutons Monter / Descendre
+  // glisser-deposer : chantiers (priorisation), equivalent clavier les boutons Monter / Descendre ;
+  // taches (tableau), equivalent clavier la liste Statut de la carte
   let dragId = null;
+  let dragItem = null;
   main.addEventListener('dragstart', (e) => {
+    const k = e.target.closest('.card[data-item]');
+    if (k) {
+      dragItem = k.dataset.item; k.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragItem);
+      return;
+    }
     const r = e.target.closest('.row[draggable]');
     if (!r) return;
     dragId = r.dataset.id; r.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragId);
   });
-  main.addEventListener('dragend', () => { dragId = null; main.querySelectorAll('.dragging,.drop-before').forEach((n) => n.classList.remove('dragging', 'drop-before')); });
+  main.addEventListener('dragend', () => { dragId = null; dragItem = null; main.querySelectorAll('.dragging,.drop-before,.drop-on').forEach((n) => n.classList.remove('dragging', 'drop-before', 'drop-on')); });
   main.addEventListener('dragover', (e) => {
+    if (dragItem) {
+      const col = e.target.closest('.col[data-statut]');
+      if (!col) return;
+      e.preventDefault();
+      main.querySelectorAll('.drop-on').forEach((n) => { if (n !== col) n.classList.remove('drop-on'); });
+      col.classList.add('drop-on');
+      return;
+    }
     if (!dragId) return;
     const t = e.target.closest('.row[draggable], .drop-hint, .group');
     if (!t) return;
@@ -676,6 +718,13 @@
     if (t.classList.contains('row')) t.classList.add('drop-before');
   });
   main.addEventListener('drop', (e) => {
+    if (dragItem) {
+      const col = e.target.closest('.col[data-statut]');
+      const i = data.items.find((x) => x.id === dragItem);
+      e.preventDefault();
+      if (col && i && i.statut !== col.dataset.statut) setItem(dragItem, 'statut', col.dataset.statut);
+      return;
+    }
     if (!dragId) return;
     e.preventDefault();
     const r = e.target.closest('.row[draggable]');
