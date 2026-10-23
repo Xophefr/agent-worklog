@@ -329,7 +329,7 @@ export function merge(old, chantiers, items, read = () => null, opts = {}) {
 }
 
 // ---------- session ----------
-function pairs(values, flag) {
+export function pairs(values, flag) {
   return values.map((v) => {
     const k = v.indexOf("=");
     if (k < 0) throw new Error(`${flag} attend ID=valeur, reçu « ${v} »`);
@@ -427,16 +427,18 @@ function parseArgs(argv) {
   return a;
 }
 
-function main() {
-  const ROOT = findRoot();
-  let args, cfg;
-  try { args = parseArgs(process.argv.slice(2)); cfg = loadConfig(ROOT); } catch (e) { console.error(`ERREUR : ${e.message}`); return 2; }
+/**
+ * Les données du mode fichiers, lues dans les Markdown du projet et fusionnées avec son
+ * chantiers.json : { data, OUT_JSON, CHANTIERS_MD, BACKLOG_MD }. Lève une Error si un fichier manque.
+ * Sert aussi à l'import vers le mode base (client.mjs).
+ */
+export function construire(ROOT, cfg) {
   const CHANTIERS_MD = at(ROOT, cfg, "chantiers");
   const BACKLOG_MD = at(ROOT, cfg, "backlog");
   const TRACKER = at(ROOT, cfg, "tracker");
   const OUT_JSON = join(TRACKER, "chantiers.json");
   for (const p of [CHANTIERS_MD, BACKLOG_MD]) {
-    if (!existsSync(p)) { console.error(`ERREUR : ${posix(relative(ROOT, p))} introuvable (chemins dans ${CONFIG_FILE})`); return 2; }
+    if (!existsSync(p)) throw new Error(`${posix(relative(ROOT, p))} introuvable (chemins dans ${CONFIG_FILE})`);
   }
   const old = existsSync(OUT_JSON) ? JSON.parse(readFileSync(OUT_JSON, "utf8")) : {};
   const chantiers = parseChantiers(readFileSync(CHANTIERS_MD, "utf8"));
@@ -451,6 +453,19 @@ function main() {
     specs: cfg.specs, chantiers: cfg.chantiers, backlog: cfg.backlog, projet: cfg.projet,
     ui: { ...cfg.ui, racine: racine ? racine + "/" : "", backlog: posix(relative(TRACKER, BACKLOG_MD)) },
   });
+  return { data, OUT_JSON, CHANTIERS_MD, BACKLOG_MD };
+}
+
+function main() {
+  const ROOT = findRoot();
+  const argv = process.argv.slice(2);
+  let cfg;
+  try { cfg = loadConfig(ROOT); } catch (e) { console.error(`ERREUR : ${e.message}`); return 2; }
+  // Mode base (ou import vers le mode base) : le client du BFF, chargé seulement dans ce cas.
+  if (cfg.mode === "base" || argv.includes("--importer")) return import("./client.mjs").then((m) => m.mainBase(ROOT, cfg, argv));
+  let args, built;
+  try { args = parseArgs(argv); built = construire(ROOT, cfg); } catch (e) { console.error(`ERREUR : ${e.message}`); return 2; }
+  const { data, OUT_JSON } = built;
 
   if (args.statut.length || args.suivi.length || args.lot.length || args.chantier.length) {
     if (!args.session) { console.error("ERREUR : --session est requis avec --statut/--suivi/--lot/--chantier (qui a fait quoi)"); return 2; }
@@ -480,4 +495,6 @@ function main() {
   return args.strict && incs.length ? 1 : 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) process.exitCode = main();
+if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {
+  Promise.resolve(main()).then((c) => { process.exitCode = c; }, (e) => { console.error(`ERREUR : ${e.message}`); process.exitCode = 1; });
+}

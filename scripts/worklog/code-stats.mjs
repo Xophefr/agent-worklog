@@ -104,7 +104,12 @@ function main() {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, JSON.stringify(data, null, 4) + "\n", "utf8");
   console.log(`écrit ${posix(relative(root, out))} (${data.releves.length} relevé(s))`);
+  // Mode base : le BFF ne voit pas le dépôt, le relevé lui est envoyé (onglet « Code »).
+  if (cfg.mode === "base") {
+    return import("./client.mjs").then((m) => m.envoyerCode(root, cfg, data)).then(() => { console.log(`envoyé au BFF (${cfg.bff})`); return 0; },
+      (e) => { console.error(`ERREUR : relevé non envoyé au BFF : ${e.message}`); return 1; });
+  }
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) process.exitCode = main();
+if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) Promise.resolve(main()).then((c) => { process.exitCode = c; });

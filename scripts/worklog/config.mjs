@@ -10,6 +10,10 @@ export const CONFIG_FILE = "tracker.config.json";
 
 export const DEFAULTS = {
   projet: "",
+  // "fichiers" : le suivi vit dans les .md du dépôt ; "base" : dans la base du BFF (`bff`, `projetBase`).
+  mode: "fichiers",
+  bff: "",
+  projetBase: "",
   chantiers: "docs/CHANTIERS.md",
   backlog: "docs/chantiers/backlog.md",
   specs: "docs/chantiers",

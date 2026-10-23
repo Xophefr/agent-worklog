@@ -2,7 +2,7 @@
 // enregistrement du tableau (patch.mjs et serveur), relevé de code.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -683,5 +683,94 @@ for (const [nom, url] of BASES) {
     const liste = await (await appel("/api/projets")).json();
     assert.deepEqual(liste.projets.map((p) => p.id), ["a", "b", "c"]);
     assert.equal(liste.projets[2].resume.taches.base, 4);
+  });
+}
+
+for (const [nom, url] of BASES) {
+  test(`commande en mode base (${nom}) : import, specs, session, lecture, création, clôture, journal, export, gel des .md, BFF arrêté`, async (t) => {
+    const { execFile } = await import("node:child_process");
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => srv.close());
+    const bff = `http://localhost:${srv.address().port}`;
+    const tmp = mkdtempSync(join(tmpdir(), "wl-cli-"));
+    t.after(() => rmSync(tmp, { recursive: true, force: true }));
+    const home = join(tmp, "home");
+    const dir = join(tmp, "proj");
+    mkdirSync(join(dir, "docs", "chantiers"), { recursive: true });
+    mkdirSync(home);
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Démo Base" }));
+    writeFileSync(join(dir, "docs", "CHANTIERS.md"), CHANTIERS.replace("## Journal\n| CH-99 | ne doit pas être lu |", "## Journal\n\nAjout seul.\n\n| date | session | chantier | ce qui a bougé | commits | docs |\n|---|---|---|---|---|---|\n| 2026-10-01 | s0 | tous | init | — | — |"));
+    writeFileSync(join(dir, "docs", "chantiers", "backlog.md"), BACKLOG);
+    writeFileSync(join(dir, "docs", "chantiers", "CH-01_api.md"), SPEC);
+    const ji = await depot.creerJeton(null, "interface");
+    writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [bff]: ji }));
+    const run = (...a) => new Promise((ok) => execFile(process.execPath, [join(ROOT, "scripts", "worklog", "chantiers-tracker.mjs"), "--root", dir, ...a],
+      { env: { ...process.env, AGENT_WORKLOG_HOME: home, WORKLOG_TOKEN: "" }, encoding: "utf8" }, (e, stdout, stderr) => ok({ code: e ? e.code : 0, out: stdout + stderr })));
+    const lire = async () => (await fetch(`${bff}/p/demo-base/chantiers.json`, { headers: { Authorization: `Bearer ${ji}` } })).json();
+
+    let r = await run("--importer", "--bff", bff);
+    assert.equal(r.code, 0, r.out);
+    const cfg = JSON.parse(readFileSync(join(dir, "tracker.config.json"), "utf8"));
+    assert.deepEqual([cfg.mode, cfg.bff, cfg.projetBase], ["base", bff, "demo-base"]);
+    assert.ok(JSON.parse(readFileSync(join(home, "jetons.json"), "utf8"))["demo-base"]);
+    assert.equal((await lire()).items.length, 4);
+
+    r = await run();
+    assert.equal(r.code, 0, r.out);
+    assert.equal((await lire()).chantiers.find((c) => c.id === "CH-01").lots.length, 2);
+    assert.match(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8").split("\n")[0], /Gelé le/);
+    await run();
+    assert.equal(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8").split("Gelé le").length, 2); // une seule fois
+
+    await fetch(`${bff}/api/p/demo-base/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ji}`, "X-Worklog-Auteur": "Xophe" }, body: JSON.stringify({ op: "modifierTache", args: { id: "API-01", champs: { statut: "fait" } } }) });
+    r = await run("--session", "s1", "--statut", "API-01=en_cours", "--suivi", "API-01=reprise");
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /API-01.*était « fait ».*Xophe/);
+    assert.equal((await lire()).items.find((i) => i.id === "API-01").statut, "en_cours");
+    assert.equal((await run("--statut", "API-01=fait")).code, 2); // sans --session
+
+    r = await run("voir", "CH-01");
+    assert.match(r.out, /CH-01/);
+    assert.match(r.out, /API-01/);
+    assert.match(r.out, /Lots/);
+    r = await run("taches");
+    assert.match(r.out, /API-02/);
+
+    r = await run("--session", "s1", "tache", "ajouter", "CH-01", "--titre", "Cache", "--attendu", "rapide");
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /API-04/);
+    r = await run("--session", "s1", "tache", "maj", "API-04", "--priorite", "P0", "--statut", "en_cours");
+    assert.equal(r.code, 0, r.out);
+    r = await run("--session", "s1", "chantier", "ajouter", "--titre", "Écrans 2", "--etat", "en cours");
+    assert.match(r.out, /CH-03/);
+    r = await run("--session", "s1", "chantier", "clore", "CH-02", "--preuve", "commit x", "--reste", "rien");
+    assert.equal(r.code, 0, r.out);
+    r = await run("--session", "s1", "journal", "OUVERT. Reprise", "--chantier", "CH-01");
+    assert.equal(r.code, 0, r.out);
+    const d = await lire();
+    assert.deepEqual([d.items.find((i) => i.id === "API-04").priorite, d.chantiers.find((c) => c.id === "CH-02").colonne, d.journal.entrees.length], ["P0", "clos", 2]);
+    assert.equal((await run("--session", "s1", "tache", "maj", "API-04", "--statut", "fini")).code, 1);
+
+    r = await run("--exporter");
+    assert.equal(r.code, 0, r.out);
+    const exp = readdirSync(join(dir, "docs")).find((n) => n.startsWith("export-"));
+    assert.match(readFileSync(join(dir, "docs", exp, "backlog.md"), "utf8"), /API-04/);
+
+    // Review Focus 3 : BFF injoignable -> code 1, message clair, rien d'écrit en local.
+    const avant = readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8");
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ ...cfg, bff: "http://localhost:1" }));
+    r = await run("--session", "s1", "--statut", "API-01=fait");
+    assert.equal(r.code, 1);
+    assert.match(r.out, /BFF injoignable/);
+    assert.equal(readFileSync(join(dir, "docs", "CHANTIERS.md"), "utf8"), avant);
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify(cfg));
+    rmSync(join(home, "jetons.json"));
+    r = await run("taches");
+    assert.equal(r.code, 2);
+    assert.match(r.out, /jeton/);
   });
 }

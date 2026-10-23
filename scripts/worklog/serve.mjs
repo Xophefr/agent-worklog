@@ -50,6 +50,10 @@ function main() {
   const argv = process.argv.slice(2);
   const k = argv.indexOf("--port");
   const port = Number(k >= 0 ? argv[k + 1] : cfg.serveur.port) || 4173;
+  if (cfg.mode === "base") {
+    console.log(`Ce projet est en mode base : son tableau est servi par le BFF (${cfg.bff}), ouvert depuis l'accueil (npm run accueil, dans agent-worklog).`);
+    return;
+  }
   if (!existsSync(join(at(root, cfg, "tracker"), "chantiers.json"))) {
     console.log("chantiers.json absent : lancer d'abord `npm run chantiers`.");
   }
