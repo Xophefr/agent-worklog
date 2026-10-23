@@ -37,100 +37,124 @@ async function charger(q, projetId) {
   };
 }
 
-export function creerDepot(base) {
-  const q0 = base.requete;
+/** Le corps d'une écriture, dans une transaction déjà ouverte (`q` = sa requête). */
+async function ecrireDans(q, projetId, auteur, fn) {
+  if (!(await q("SELECT id FROM wl_projets WHERE id = ? FOR UPDATE", [projetId])).length) throw new ErreurDepot(404, `projet inconnu : ${projetId}`);
+  const avant = await charger(q, projetId);
+  const apres = structuredClone(avant);
+  const resultat = await fn(apres);
+  const changements = [];
+  const noter = (objet, objet_id, champ, a, b) => changements.push({ objet, objet_id, champ, avant: a ?? null, apres: b ?? null });
 
-  async function ecrire(projetId, auteur, fn) {
-    return base.transaction(async (tx) => {
-      const q = tx.requete;
-      if (!(await q("SELECT id FROM wl_projets WHERE id = ? FOR UPDATE", [projetId])).length) throw new ErreurDepot(404, `projet inconnu : ${projetId}`);
-      const avant = await charger(q, projetId);
-      const apres = structuredClone(avant);
-      const resultat = await fn(apres);
-      const changements = [];
-      const noter = (objet, objet_id, champ, a, b) => changements.push({ objet, objet_id, champ, avant: a ?? null, apres: b ?? null });
-
-      // Chantiers et tâches : création, modification champ par champ, retrait.
-      for (const [table, objet, l0, l1] of [["wl_chantiers", "chantier", avant.chantiers, apres.chantiers], ["wl_taches", "tache", avant.items, apres.items]]) {
-        const vieux = new Map(l0.map((x) => [x.id, x]));
-        let ordre = l0.length;
-        for (const x of l1) {
-          const o = vieux.get(x.id);
-          if (!o) {
-            await q(`INSERT INTO ${table} (projet_id, id, ordre, donnees) VALUES (?, ?, ?, ?)`, [projetId, x.id, ++ordre, JSON.stringify(x)]);
-            noter(objet, x.id, "*", null, x);
-            continue;
-          }
-          vieux.delete(x.id);
-          const champs = [...new Set([...Object.keys(o), ...Object.keys(x)])].filter((k) => json(o[k]) !== json(x[k]));
-          if (!champs.length) continue;
-          await q(`UPDATE ${table} SET donnees = ? WHERE projet_id = ? AND id = ?`, [JSON.stringify(x), projetId, x.id]);
-          for (const k of champs) noter(objet, x.id, k, o[k], x[k]);
-        }
-        for (const o of vieux.values()) {
-          await q(`DELETE FROM ${table} WHERE projet_id = ? AND id = ?`, [projetId, o.id]);
-          noter(objet, o.id, "*", o, null);
-        }
+  // Chantiers et tâches : création, modification champ par champ, retrait.
+  for (const [table, objet, l0, l1] of [["wl_chantiers", "chantier", avant.chantiers, apres.chantiers], ["wl_taches", "tache", avant.items, apres.items]]) {
+    const vieux = new Map(l0.map((x) => [x.id, x]));
+    let ordre = l0.length;
+    for (const x of l1) {
+      const o = vieux.get(x.id);
+      if (!o) {
+        await q(`INSERT INTO ${table} (projet_id, id, ordre, donnees) VALUES (?, ?, ?, ?)`, [projetId, x.id, ++ordre, JSON.stringify(x)]);
+        noter(objet, x.id, "*", null, x);
+        continue;
       }
-
-      // Journal : ajout seul.
-      for (const e of apres.journal.entrees.slice(avant.journal.entrees.length)) {
-        await q("INSERT INTO wl_journal (projet_id, donnees) VALUES (?, ?)", [projetId, JSON.stringify(e)]);
-        noter("journal", `${e.date || ""} ${e.session || ""}`.trim(), "*", null, e);
-      }
-
-      // Projet : nom, couleurs, réglages, textes (dont la consigne du journal).
-      const t0 = { ...avant.textes, consigne: avant.journal.consigne };
-      const t1 = { ...apres.textes, consigne: apres.journal.consigne };
-      for (const [champ, col, a, b] of [["nom", "nom", avant.meta.projet, apres.meta.projet], ["ui", "ui", avant.meta.ui, apres.meta.ui], ["reglages", "reglages", avant.reglages, apres.reglages], ["textes", "textes", t0, t1]]) {
-        if (json(a) === json(b)) continue;
-        await q(`UPDATE wl_projets SET ${col} = ? WHERE id = ?`, [champ === "nom" ? b : JSON.stringify(b), projetId]);
-        noter("projet", projetId, champ, a, b);
-      }
-
-      // Specs et relevé de code, envoyés par la commande du projet.
-      const sp0 = new Map(avant.specs.map((s) => [s.chemin, s.texte]));
-      for (const s of apres.specs) {
-        if (sp0.get(s.chemin) === s.texte) continue;
-        if (sp0.has(s.chemin)) await q("UPDATE wl_specs SET texte = ? WHERE projet_id = ? AND chemin = ?", [s.texte, projetId, s.chemin]);
-        else await q("INSERT INTO wl_specs (projet_id, chemin, texte) VALUES (?, ?, ?)", [projetId, s.chemin, s.texte]);
-        noter("spec", s.chemin, "texte", sp0.get(s.chemin), s.texte);
-      }
-      if (json(avant.code) !== json(apres.code)) {
-        await q("DELETE FROM wl_code WHERE projet_id = ?", [projetId]);
-        if (apres.code) await q("INSERT INTO wl_code (projet_id, stats) VALUES (?, ?)", [projetId, JSON.stringify(apres.code)]);
-        noter("code", projetId, "stats", null, "relevé reçu");
-      }
-
-      // Historique : l'auteur précédent de chaque champ (pour dire à une session ce qu'elle remplace), puis la ligne.
-      const quand = maintenant();
-      for (const c of changements) {
-        if (c.champ !== "*") {
-          const r = (await q("SELECT auteur, type_auteur, quand FROM wl_historique WHERE projet_id = ? AND objet = ? AND objet_id = ? AND champ IN (?, '*') ORDER BY n DESC LIMIT 1", [projetId, c.objet, c.objet_id, c.champ]))[0];
-          if (r) c.auteurAvant = { nom: r.auteur, type: r.type_auteur, quand: r.quand };
-        }
-        await q("INSERT INTO wl_historique (projet_id, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [projetId, c.objet, c.objet_id, c.champ, enTexte(c.avant), enTexte(c.apres), auteur.nom, auteur.type, quand]);
-      }
-      const v = (await q("SELECT MAX(n) AS n FROM wl_historique WHERE projet_id = ?", [projetId]))[0];
-      return { resultat, version: Number(v && v.n) || 0, changements };
-    });
+      vieux.delete(x.id);
+      const champs = [...new Set([...Object.keys(o), ...Object.keys(x)])].filter((k) => json(o[k]) !== json(x[k]));
+      if (!champs.length) continue;
+      await q(`UPDATE ${table} SET donnees = ? WHERE projet_id = ? AND id = ?`, [JSON.stringify(x), projetId, x.id]);
+      for (const k of champs) noter(objet, x.id, k, o[k], x[k]);
+    }
+    for (const o of vieux.values()) {
+      await q(`DELETE FROM ${table} WHERE projet_id = ? AND id = ?`, [projetId, o.id]);
+      noter(objet, o.id, "*", o, null);
+    }
   }
 
+  // Journal : ajout seul.
+  for (const e of apres.journal.entrees.slice(avant.journal.entrees.length)) {
+    await q("INSERT INTO wl_journal (projet_id, donnees) VALUES (?, ?)", [projetId, JSON.stringify(e)]);
+    noter("journal", `${e.date || ""} ${e.session || ""}`.trim(), "*", null, e);
+  }
+
+  // Projet : nom, couleurs, réglages, textes (dont la consigne du journal).
+  const t0 = { ...avant.textes, consigne: avant.journal.consigne };
+  const t1 = { ...apres.textes, consigne: apres.journal.consigne };
+  for (const [champ, col, a, b] of [["nom", "nom", avant.meta.projet, apres.meta.projet], ["ui", "ui", avant.meta.ui, apres.meta.ui], ["reglages", "reglages", avant.reglages, apres.reglages], ["textes", "textes", t0, t1]]) {
+    if (json(a) === json(b)) continue;
+    await q(`UPDATE wl_projets SET ${col} = ? WHERE id = ?`, [champ === "nom" ? b : JSON.stringify(b), projetId]);
+    noter("projet", projetId, champ, a, b);
+  }
+
+  // Specs et relevé de code, envoyés par la commande du projet.
+  const sp0 = new Map(avant.specs.map((s) => [s.chemin, s.texte]));
+  for (const s of apres.specs) {
+    if (sp0.get(s.chemin) === s.texte) continue;
+    if (sp0.has(s.chemin)) await q("UPDATE wl_specs SET texte = ? WHERE projet_id = ? AND chemin = ?", [s.texte, projetId, s.chemin]);
+    else await q("INSERT INTO wl_specs (projet_id, chemin, texte) VALUES (?, ?, ?)", [projetId, s.chemin, s.texte]);
+    noter("spec", s.chemin, "texte", sp0.get(s.chemin), s.texte);
+  }
+  if (json(avant.code) !== json(apres.code)) {
+    await q("DELETE FROM wl_code WHERE projet_id = ?", [projetId]);
+    if (apres.code) await q("INSERT INTO wl_code (projet_id, stats) VALUES (?, ?)", [projetId, JSON.stringify(apres.code)]);
+    noter("code", projetId, "stats", null, "relevé reçu");
+  }
+
+  // Historique : l'auteur précédent de chaque champ (pour dire à une session ce qu'elle remplace), puis la ligne.
+  const quand = maintenant();
+  for (const c of changements) {
+    if (c.champ !== "*") {
+      const r = (await q("SELECT auteur, type_auteur, quand FROM wl_historique WHERE projet_id = ? AND objet = ? AND objet_id = ? AND champ IN (?, '*') ORDER BY n DESC LIMIT 1", [projetId, c.objet, c.objet_id, c.champ]))[0];
+      if (r) c.auteurAvant = { nom: r.auteur, type: r.type_auteur, quand: r.quand };
+    }
+    await q("INSERT INTO wl_historique (projet_id, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [projetId, c.objet, c.objet_id, c.champ, enTexte(c.avant), enTexte(c.apres), auteur.nom, auteur.type, quand]);
+  }
+  const v = (await q("SELECT MAX(n) AS n FROM wl_historique WHERE projet_id = ?", [projetId]))[0];
+  return { resultat, version: Number(v && v.n) || 0, changements };
+}
+
+const ajoutProjet = async (q, { id, nom, ui = {}, reglages = {}, textes = {} }, auteur) => {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(String(id || ""))) throw new ErreurDepot(400, `id de projet invalide : ${id} (minuscules, chiffres, tirets)`);
+  if ((await q("SELECT id FROM wl_projets WHERE id = ?", [id])).length) throw new ErreurDepot(409, `${id} existe déjà en base`);
+  await q("INSERT INTO wl_projets (id, nom, ui, reglages, textes, cree_le) VALUES (?, ?, ?, ?, ?, ?)", [id, nom, JSON.stringify(ui), JSON.stringify(reglages), JSON.stringify(textes), maintenant()]);
+  await q("INSERT INTO wl_historique (projet_id, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, "projet", id, "*", null, JSON.stringify({ id, nom }), auteur.nom, auteur.type, maintenant()]);
+};
+
+/**
+ * Import d'un projet du mode fichiers, en UNE transaction. Un projet déjà en base est refusé,
+ * sauf `remplacer` : ses données sont alors remplacées par comparaison, donc chaque changement
+ * (et chaque objet disparu) est tracé dans l'historique.
+ */
+export async function importer(depot, { id, nom, ui = {}, data, journal = { consigne: "", entrees: [] }, textes = {}, specs = [] }, auteur, { remplacer = false } = {}) {
+  return depot.base.transaction(async (tx) => {
+    const existe = (await tx.requete("SELECT id FROM wl_projets WHERE id = ?", [id])).length > 0;
+    if (existe && !remplacer) throw new ErreurDepot(409, `${id} existe déjà en base (--remplacer pour l'écraser)`);
+    if (!existe) await ajoutProjet(tx.requete, { id, nom, ui }, auteur);
+    return ecrireDans(tx.requete, id, auteur, (d) => {
+      d.meta.projet = nom;
+      d.meta.ui = ui;
+      d.chantiers = structuredClone(data.chantiers || []);
+      d.items = structuredClone(data.items || []);
+      // Journal : ajout seul ; un remplacement n'efface pas ce qui y est déjà.
+      d.journal.consigne = journal.consigne || "";
+      d.journal.entrees.push(...journal.entrees.slice(d.journal.entrees.length));
+      d.textes = { ...d.textes, ...textes };
+      for (const s of specs) { const k = d.specs.findIndex((x) => x.chemin === s.chemin); if (k >= 0) d.specs[k] = s; else d.specs.push(s); }
+    });
+  });
+}
+
+export function creerDepot(base) {
+  const q0 = base.requete;
+  const ecrire = (projetId, auteur, fn) => base.transaction((tx) => ecrireDans(tx.requete, projetId, auteur, fn));
+
   return {
+    base,
     ecrire,
     lire: (projetId) => charger(q0, projetId),
     async projets() { return (await q0("SELECT id, nom FROM wl_projets ORDER BY id")).map((r) => ({ id: r.id, nom: r.nom })); },
 
-    async creerProjet({ id, nom, ui = {}, reglages = {}, textes = {} }, auteur) {
-      if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(String(id || ""))) throw new ErreurDepot(400, `id de projet invalide : ${id} (minuscules, chiffres, tirets)`);
-      return base.transaction(async (tx) => {
-        if ((await tx.requete("SELECT id FROM wl_projets WHERE id = ?", [id])).length) throw new ErreurDepot(409, `${id} existe déjà en base`);
-        await tx.requete("INSERT INTO wl_projets (id, nom, ui, reglages, textes, cree_le) VALUES (?, ?, ?, ?, ?, ?)", [id, nom, JSON.stringify(ui), JSON.stringify(reglages), JSON.stringify(textes), maintenant()]);
-        await tx.requete("INSERT INTO wl_historique (projet_id, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [id, "projet", id, "*", null, JSON.stringify({ id, nom }), auteur.nom, auteur.type, maintenant()]);
-      });
-    },
+    creerProjet: (p, auteur) => base.transaction((tx) => ajoutProjet(tx.requete, p, auteur)),
 
     async historique(projetId, objet, objetId) {
       return q0("SELECT n, objet, objet_id, champ, avant, apres, auteur, type_auteur, quand FROM wl_historique WHERE projet_id = ? AND objet = ? AND objet_id = ? ORDER BY n DESC", [projetId, objet, objetId]);

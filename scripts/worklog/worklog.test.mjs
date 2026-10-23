@@ -12,7 +12,7 @@ import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, pars
 import { exportMd } from "./export-md.mjs";
 import { ouvrirBase } from "./base/connexion.mjs";
 import { migrer, TABLES } from "./base/schema.mjs";
-import { creerDepot } from "./base/depot.mjs";
+import { creerDepot, importer } from "./base/depot.mjs";
 import { homedir } from "node:os";
 import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { applyPatch } from "./patch.mjs";
@@ -581,5 +581,35 @@ for (const [nom, url] of BASES) {
     const ji = await depot.creerJeton(null, "interface");
     assert.deepEqual(await depot.verifierJeton(ji), { projetId: null });
     assert.equal(await depot.verifierJeton("faux"), null);
+  });
+}
+
+for (const [nom, url] of BASES) {
+  test(`base ${nom} : import sans perte, refus d'un second import, remplacement tracé`, async (t) => {
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const reel = "E:/wamp64/www/chatbot_faq/docs/tracker/chantiers.json";
+    const src = existsSync(reel) ? JSON.parse(readFileSync(reel, "utf8")) : build();
+    const journal = { consigne: "Ajout seul.", entrees: [{ date: "2026-10-01", session: "s0", chantiers: "tous", texte: "init", commits: "—", docs: "—" }] };
+    const quoi = { id: "repli", nom: "Repli", ui: { accent: "#7fae2a" }, data: src, journal, textes: { chantiersMd: "# brut", backlogMd: "# brut aussi" }, specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] };
+    await importer(depot, quoi, { nom: "import", type: "session" });
+    const d = await depot.lire("repli");
+    assert.deepEqual(d.chantiers, src.chantiers);
+    assert.deepEqual(d.items, src.items);
+    assert.deepEqual(d.journal, journal);
+    assert.equal(d.textes.backlogMd, "# brut aussi");
+    assert.equal(d.specs.length, 1);
+    await assert.rejects(importer(depot, quoi, { nom: "import", type: "session" }), /existe déjà en base/);
+    const autre = structuredClone(src);
+    autre.items[0].note = "changée";
+    autre.items.pop();
+    await importer(depot, { ...quoi, data: autre }, { nom: "import", type: "session" }, { remplacer: true });
+    const d2 = await depot.lire("repli");
+    assert.equal(d2.items.length, src.items.length - 1);
+    assert.equal(d2.items[0].note, "changée");
+    const h = await depot.historique("repli", "tache", src.items[0].id);
+    assert.equal(h[0].champ, "note");
+    assert.equal(h[0].apres, "changée");
   });
 }
