@@ -11,18 +11,22 @@ export async function ouvrirBase(url) {
   if (proto === "postgres" || proto === "postgresql") {
     const { default: pg } = await import("pg");
     const pool = new pg.Pool({ connectionString: url, max: 10 });
+    // Une connexion perdue (redémarrage de PostgreSQL, réseau) ne doit pas faire tomber le BFF :
+    // le pool en ouvre une autre à la requête suivante.
+    pool.on("error", (e) => console.error(`base : connexion perdue (${e.message}), reprise à la requête suivante`));
     const req = (c) => async (sql, params = []) => (await c.query(pgSql(sql), params)).rows;
     return {
       dialecte: "pg",
       requete: req(pool),
       async transaction(fn) {
         const c = await pool.connect();
+        let casse = null; // connexion qui ne répond plus : rendue au pool pour être détruite, pas réutilisée
         try {
           await c.query("BEGIN");
           const r = await fn({ dialecte: "pg", requete: req(c) });
           await c.query("COMMIT");
           return r;
-        } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; } finally { c.release(); }
+        } catch (e) { await c.query("ROLLBACK").catch((err) => { casse = err; }); throw e; } finally { c.release(casse || undefined); }
       },
       fermer: () => pool.end(),
     };

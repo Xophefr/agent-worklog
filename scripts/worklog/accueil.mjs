@@ -112,7 +112,8 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     const jeton = lies()[b.bff] || lies()[origine];
     if (!jeton) throw new Error(`BFF non lié : node scripts/worklog/accueil.mjs lier-bff ${origine} <jeton>`);
     try {
-      return await fetch(origine + chemin, { method, body, headers: { Authorization: `Bearer ${jeton}`, "X-Worklog-Auteur": encodeURIComponent(auteur()), "Content-Type": "application/json" } });
+      // Un BFF qui ne répond pas donne une carte d'erreur à temps, sans figer les autres cartes.
+      return await fetch(origine + chemin, { method, body, signal: AbortSignal.timeout(Number(process.env.WORKLOG_DELAI_BFF) || 15000), headers: { Authorization: `Bearer ${jeton}`, "X-Worklog-Auteur": encodeURIComponent(auteur()), "Content-Type": "application/json" } });
     } catch { throw new Error(`BFF injoignable (${origine})`); }
   }
   async function relayer(req, res, b, chemin, apres) {

@@ -352,6 +352,7 @@
   }
   function closeDrawer() {
     if (!isOpen()) return;
+    formEnCours = null;
     $('#drawer').classList.remove('open');
     $('#drawer').setAttribute('aria-hidden', 'true');
     OUTSIDE.forEach((s) => { const n = $(s); if (n) n.inert = false; });
@@ -486,6 +487,7 @@
       <p class="form-err" role="alert" tabindex="-1" hidden></p>
       <div class="row-btns"><button type="submit" class="btn primary">${esc(f.bouton)}</button><button type="button" class="btn" data-act="annuler">Annuler</button></div></form>`, f.id, f.titre);
     delete $('#drBody').dataset.ch;
+    f.initial = lireForm($('#drBody form[data-form]'), f.defs);
     const first = $('#drBody input, #drBody textarea, #drBody select');
     if (first) first.focus();
   }
@@ -993,13 +995,15 @@
     if (!d.matches || !d.matches('details.lot[data-etat="fait"]')) return;  // le rendu initial declenche aussi toggle
     if (d.open) lotsOuverts.add(d.dataset.lot); else lotsOuverts.delete(d.dataset.lot);
   }, true);
-  $('#drClose').addEventListener('click', closeDrawer);
+  $('#drClose').addEventListener('click', fermerOuDemander);
   // Mode base : onglets, actions et formulaires du panneau.
   body.addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]');
     if (!b) return;
     const a = b.dataset.act, k = b.dataset.kind, id = b.dataset.cible;
     if (a === 'annuler') { const f = formEnCours; formEnCours = null; if (f) f.retour(); return; }
+    if (a === 'abandonner') { formEnCours = null; closeDrawer(); return; }
+    if (a === 'continuer') { b.closest('.abandon').remove(); const first = $('#drBody form[data-form] input, #drBody form[data-form] textarea, #drBody form[data-form] select'); if (first) first.focus(); return; }
     if (a === 'fiche') { (k === 'chantier' ? showChantier : showItem)(id); const t = $('#drBody [data-act="fiche"]'); if (t) t.focus(); return; }
     if (a === 'hist') return historique(k, id);
     if (a === 'modifier') return editer(k, id);
@@ -1057,8 +1061,19 @@
       n.focus();
     }
   });
-  $('#scrim').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+  // Un formulaire commence ne se ferme pas sur une touche ou un clic de travers : on demande d'abord.
+  function fermerOuDemander() {
+    const form = formEnCours && $('#drBody form[data-form]');
+    if (!form || JSON.stringify(lireForm(form, formEnCours.defs)) === JSON.stringify(formEnCours.initial)) { closeDrawer(); return; }
+    if (!form.querySelector('.abandon')) {
+      form.insertAdjacentHTML('beforeend', `<div class="abandon" role="group" aria-label="Saisie non enregistrée">
+        <p role="alert">La saisie n’est pas enregistrée.</p>
+        <div class="row-btns"><button type="button" class="btn danger" data-act="abandonner">Abandonner la saisie</button><button type="button" class="btn" data-act="continuer">Continuer</button></div></div>`);
+    }
+    form.querySelector('[data-act="continuer"]').focus();
+  }
+  $('#scrim').addEventListener('click', fermerOuDemander);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerOuDemander(); });
   window.addEventListener('hashchange', () => { if (location.hash) route(); else closeDrawer(); });
 
   $('#reloadBtn').addEventListener('click', load);

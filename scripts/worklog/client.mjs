@@ -27,6 +27,8 @@ const maison = () => process.env.AGENT_WORKLOG_HOME || join(homedir(), ".agent-w
 const lireJson = (f, d) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return d; } };
 const posix = (p) => p.replaceAll("\\", "/");
 const jour = () => new Date().toLocaleDateString("en-CA");
+// Un BFF qui accepte la connexion sans jamais répondre (tunnel bloqué) ne doit pas figer une session.
+const delai = () => Number(process.env.WORKLOG_DELAI_BFF) || 15000;
 const GEL = "> Gelé le";
 
 class ErreurClient extends Error { constructor(code, message) { super(message); this.code = code; } }
@@ -54,6 +56,7 @@ async function appel(url, jeton, chemin, corps) {
   let r;
   try {
     r = await fetch(url.replace(/\/+$/, "") + chemin, {
+      signal: AbortSignal.timeout(delai()),
       method: corps === undefined ? "GET" : "POST",
       headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
       body: corps === undefined ? undefined : JSON.stringify(corps),
@@ -135,8 +138,13 @@ async function importerProjet(ROOT, cfg, opts) {
   const url = opts.bff || cfg.bff;
   if (!url) throw new ErreurClient(2, "--bff <url> attendu (adresse du BFF)");
   const lies = lireJson(join(maison(), "bff-lies.json"), {});
-  const ji = lies[url];
+  let origine;
+  try { origine = new URL(url).origin; } catch { throw new ErreurClient(2, `adresse de BFF invalide : ${url}`); }
+  const ji = lies[url] || lies[origine];
   if (!ji) throw new ErreurClient(2, `pas de jeton d'interface pour ${url} : lier d'abord le BFF (node scripts/worklog/accueil.mjs lier-bff ${url} <jeton>, depuis agent-worklog)`);
+  // Les chemins du réglage (fichier du dépôt) restent dans le projet : lus, puis peut-être retirés.
+  dans(ROOT, at(ROOT, cfg, "chantiers"));
+  dans(ROOT, at(ROOT, cfg, "backlog"));
   const { data, CHANTIERS_MD, BACKLOG_MD } = construire(ROOT, cfg);
   const id = opts.id || String(cfg.projet).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const chantiersMd = readFileSync(CHANTIERS_MD, "utf8");

@@ -117,8 +117,10 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
       if (quoi === "operation") {
         if (req.method !== "POST") return fail(res, 405, "POST attendu");
         const c = await corps(req);
-        const f = OPERATIONS[c.op];
+        const f = Object.hasOwn(OPERATIONS, c.op) ? OPERATIONS[c.op] : null;
         if (!f) return fail(res, 400, `opération inconnue : ${c.op}`);
+        // Les réglages du projet (dont le sort des .md du dépôt) sont le choix du responsable, dans l'interface.
+        if (c.op === "reglages" && acces.type !== "interface") return fail(res, 403, "réglages réservés à l'interface");
         const session = String(c.session || "").trim();
         if (acces.type === "session" && !session) return fail(res, 400, "--session attendu : chaque écriture nomme sa session");
         // Une règle métier refusée par l'opération est une erreur de la demande (400), pas du serveur.

@@ -905,3 +905,70 @@ for (const [nom, url] of BASES) {
     assert.match((await trop.json()).error, /trop grande/);
   });
 }
+
+for (const [nom, url] of BASES) {
+  test(`revue 2.0.0 (${nom}) : réglages réservés à l'interface, adresse avec /, chemins confinés, BFF qui ne répond pas`, async (t) => {
+    const { execFile } = await import("node:child_process");
+    const { createServer } = await import("node:http");
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => { if (srv.listening) srv.close(); });
+    const bff = `http://localhost:${srv.address().port}`;
+    const ji = await depot.creerJeton(null, "interface");
+    await depot.creerProjet({ id: "p", nom: "P" }, { nom: "x", type: "interface" });
+    const jp = await depot.creerJeton("p", "poste");
+    const op = (jeton, corps) => fetch(`${bff}/api/p/p/operation`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${jeton}` }, body: JSON.stringify(corps) });
+    assert.equal((await op(jp, { op: "reglages", args: { md: "retirer" }, session: "s1" })).status, 403);
+    assert.equal((await op(ji, { op: "reglages", args: { md: "garder" } })).status, 200);
+
+    const tmp = mkdtempSync(join(tmpdir(), "wl-rev2-"));
+    t.after(() => rmSync(tmp, { recursive: true, force: true }));
+    const home = join(tmp, "home");
+    mkdirSync(home);
+    writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [new URL(bff).origin]: ji }));
+    const dir = join(tmp, "proj");
+    mkdirSync(join(dir, "docs", "chantiers"), { recursive: true });
+    writeFileSync(join(tmp, "dehors.md"), "à garder");
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Proj", chantiers: "../dehors.md" }));
+    writeFileSync(join(dir, "docs", "chantiers", "backlog.md"), BACKLOG);
+    const run = (env, ...a) => new Promise((ok) => execFile(process.execPath, [join(ROOT, "scripts", "worklog", "chantiers-tracker.mjs"), "--root", dir, ...a],
+      { env: { ...process.env, AGENT_WORKLOG_HOME: home, WORKLOG_TOKEN: "", ...env }, encoding: "utf8" }, (e, o, s) => ok({ code: e ? e.code : 0, out: o + s })));
+    // Chemin du réglage qui sort du projet : --retirer-md refuse, le fichier du dehors reste.
+    let r = await run({}, "--importer", "--bff", `${bff}/`, "--retirer-md");
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /hors du projet/);
+    assert.equal(readFileSync(join(tmp, "dehors.md"), "utf8"), "à garder");
+    // Adresse donnée avec une barre finale : le jeton d'interface (gardé par origine) est trouvé.
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Proj" }));
+    writeFileSync(join(dir, "docs", "CHANTIERS.md"), CHANTIERS);
+    r = await run({}, "--importer", "--bff", `${bff}/`);
+    assert.equal(r.code, 0, r.out);
+
+    // BFF qui accepte la connexion et ne répond jamais : erreur dans le délai, pas d'attente sans fin.
+    const muet = createServer(() => {}).listen(0, "127.0.0.1");
+    await new Promise((ok) => muet.once("listening", ok));
+    t.after(() => muet.close());
+    const adresse = `http://localhost:${muet.address().port}`;
+    const cfg = JSON.parse(readFileSync(join(dir, "tracker.config.json"), "utf8"));
+    writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ ...cfg, bff: adresse }));
+    writeFileSync(join(home, "jetons.json"), JSON.stringify({ [`${new URL(adresse).origin}|${cfg.projetBase}`]: "x" }));
+    const debut = Date.now();
+    r = await run({ WORKLOG_DELAI_BFF: "800" }, "taches");
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /BFF injoignable/);
+    assert.ok(Date.now() - debut < 8000);
+    const registry = join(home, "projets.json");
+    saveRegistry(registry, { projets: [{ id: "m", type: "base", bff: adresse, projet: "m" }, ] });
+    writeFileSync(join(home, "bff-lies.json"), JSON.stringify({ [new URL(adresse).origin]: "x" }));
+    process.env.WORKLOG_DELAI_BFF = "800";
+    t.after(() => { delete process.env.WORKLOG_DELAI_BFF; });
+    const acc = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "2.0.0" }).listen(0, "127.0.0.1");
+    await new Promise((ok) => acc.once("listening", ok));
+    t.after(() => acc.close());
+    const liste = await (await fetch(`http://localhost:${acc.address().port}/api/projets`)).json();
+    assert.match(liste.projets[0].erreur, /BFF injoignable/);
+  });
+}
