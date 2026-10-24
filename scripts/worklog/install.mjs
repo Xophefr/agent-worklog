@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
+import { at, CONFIG_FILE, estLance, loadConfig } from "./config.mjs";
 import { addProject, loadRegistry, registryFile, saveRegistry } from "./registre.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -119,4 +119,4 @@ function main() {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) process.exitCode = main();
+if (estLance(import.meta.url)) process.exitCode = main();

@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { estLance } from "./config.mjs";
 import { applySession } from "./chantiers-tracker.mjs";
 import { exportMd } from "./export-md.mjs";
 import { fail, isLocalHost, readBody, send, serveFile } from "./http.mjs";
@@ -199,6 +200,6 @@ async function main(argv) {
   return null;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {
+if (estLance(import.meta.url)) {
   main(process.argv.slice(2)).then((c) => { if (c !== null) process.exitCode = c; }, (e) => { console.error(`ERREUR : ${e.message}`); process.exitCode = 1; });
 }

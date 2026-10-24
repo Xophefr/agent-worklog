@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, CONFIG_FILE, findRoot, loadConfig } from "./config.mjs";
+import { at, CONFIG_FILE, estLance, findRoot, loadConfig } from "./config.mjs";
 
 const posix = (p) => p.replaceAll("\\", "/");
 
@@ -112,4 +112,4 @@ function main() {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) Promise.resolve(main()).then((c) => { process.exitCode = c; });
+if (estLance(import.meta.url)) Promise.resolve(main()).then((c) => { process.exitCode = c; });

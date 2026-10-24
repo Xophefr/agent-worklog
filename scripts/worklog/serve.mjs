@@ -11,7 +11,7 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, findRoot, loadConfig } from "./config.mjs";
+import { at, estLance, findRoot, loadConfig } from "./config.mjs";
 import { fail, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
 
 export function createTracker(root, cfg) {
@@ -63,4 +63,4 @@ function main() {
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) main();
+if (estLance(import.meta.url)) main();

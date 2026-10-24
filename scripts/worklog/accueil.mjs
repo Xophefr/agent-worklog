@@ -24,7 +24,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, CONFIG_FILE, loadConfig } from "./config.mjs";
+import { at, CONFIG_FILE, estLance, loadConfig } from "./config.mjs";
 import { installInto } from "./install.mjs";
 import { fail, isLocalHost, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
 import { garderCopie, lireCopie } from "./attente.mjs";
@@ -358,7 +358,7 @@ function main(argv) {
   return null;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {
+if (estLance(import.meta.url)) {
   try { const code = main(process.argv.slice(2)); if (code !== null) process.exitCode = code; }
   catch (e) { console.error(`ERREUR : ${e.message}`); process.exitCode = 1; }
 }

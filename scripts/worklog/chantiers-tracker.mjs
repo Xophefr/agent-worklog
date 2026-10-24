@@ -31,7 +31,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { at, CONFIG_FILE, findRoot, loadConfig } from "./config.mjs";
+import { at, CONFIG_FILE, estLance, findRoot, loadConfig } from "./config.mjs";
 
 // Préfixe de 2 à 4 caractères, majuscules et chiffres, commençant par une lettre : API-01, I18N-04.
 const ID_RE = "[A-Z][A-Z0-9]{1,3}-\\d{2}";
@@ -495,6 +495,6 @@ function main() {
   return args.strict && incs.length ? 1 : 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {
+if (estLance(import.meta.url)) {
   Promise.resolve(main()).then((c) => { process.exitCode = c; }, (e) => { console.error(`ERREUR : ${e.message}`); process.exitCode = 1; });
 }

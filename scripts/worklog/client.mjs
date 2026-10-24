@@ -88,7 +88,14 @@ async function appel(url, jeton, chemin, corps) {
 const ARRET = new Set([401, 403, 404, 408, 429]);
 
 const valeur = (x) => (typeof x === "string" ? x : JSON.stringify(x) ?? "").slice(0, 60);
-const date = (q) => String(q || "").slice(0, 16).replace("T", " ");
+// Heure affichée : celle du poste (AAAA-MM-JJ HH:MM). Les dates stockées restent en UTC ("…Z").
+const deux = (n) => String(n).padStart(2, "0");
+export function date(q) {
+  const brut = String(q || "");
+  const d = /(Z|[+-]\d\d:?\d\d)$/.test(brut) ? new Date(brut) : null;
+  if (!d || Number.isNaN(d.getTime())) return brut.slice(0, 16).replace("T", " ");
+  return `${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())} ${deux(d.getHours())}:${deux(d.getMinutes())}`;
+}
 // Ids touchés par une opération. « session » porte des paires [id, valeur] : ramenées en { id: valeur }.
 const enObjet = (v) => (Array.isArray(v) ? Object.fromEntries(v.filter(Array.isArray)) : v);
 const objets = (op, args) => objetsTouches(op, op === "session" && args
@@ -142,7 +149,7 @@ function imprimerChangements(changements, session) {
     const v = (x) => (typeof x === "string" ? x : JSON.stringify(x)).slice(0, 60);
     // L'auteur précédent n'est dit que si ce n'est pas cette session : c'est lui que l'on remplace.
     const qui = c.auteurAvant && !(c.auteurAvant.type === "session" && c.auteurAvant.nom === session) ? c.auteurAvant : null;
-    console.log(`  ${c.objet_id} ${c.champ} : était « ${v(c.avant)} »${qui ? ` (${qui.nom}, ${String(qui.quand || "").slice(0, 16).replace("T", " ")})` : ""}, devient « ${v(c.apres)} »`);
+    console.log(`  ${c.objet_id} ${c.champ} : était « ${v(c.avant)} »${qui ? ` (${qui.nom}, ${date(qui.quand)})` : ""}, devient « ${v(c.apres)} »`);
   }
 }
 

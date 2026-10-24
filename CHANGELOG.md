@@ -6,6 +6,13 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 2.1.1 · 2026-10-24
+
+### Corrigé
+
+- **Lancement par un lien symbolique** : un script lancé par un dossier lié (par exemple `current -> releases/x.y.z`) sortait en silence avec le code 0 sans rien faire. La garde d'entrée compare désormais les chemins réels (`estLance` dans `config.mjs`).
+- **Heures affichées à l'heure locale** : la file d'attente, le rejeu et les conflits montraient l'heure UTC. Elles s'affichent à l'heure du poste (`AAAA-MM-JJ HH:MM`) ; les dates stockées restent en UTC.
+
 ## 2.1.0 · 2026-10-23
 
 ### Ajouté

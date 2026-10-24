@@ -2,12 +2,12 @@
 // enregistrement du tableau (patch.mjs et serveur), relevé de code.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { applySession, incoherences, lotIds, marqueRe, merge, parseBacklog, parseChantiers, parseJournal, parseLots, rattachementsParDefaut, specRe } from "./chantiers-tracker.mjs";
 import { exportMd } from "./export-md.mjs";
 import { ouvrirBase } from "./base/connexion.mjs";
@@ -19,7 +19,7 @@ import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChant
 import { applyPatch } from "./patch.mjs";
 import { countCases, isTest } from "./code-stats.mjs";
 import { createTracker } from "./serve.mjs";
-import { loadConfig } from "./config.mjs";
+import { estLance, loadConfig } from "./config.mjs";
 import { AGENTS, SKILL, agentsFromSkill } from "./sync-agents.mjs";
 import { summarize } from "./resume.mjs";
 import { createAccueil } from "./accueil.mjs";
@@ -1513,4 +1513,41 @@ test("attente : projets isolés, ordre entre sessions, fichier illisible signal�
   for (const c of conflitsEnAttente(m, p).filter((x) => x.illisible)) abandonner(m, c.uid);
   assert.equal(conflitsEnAttente(m, p).filter((c) => c.illisible).length, 0);
   rmSync(m, { recursive: true, force: true });
+});
+
+test("lancement par un lien symbolique : le script s'exécute (garde d'entrée sur chemins réels)", (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-lien-"));
+  const lien = join(tmp, "current");
+  try {
+    symlinkSync(join(ROOT, "scripts"), lien, process.platform === "win32" ? "junction" : "dir");
+  } catch (e) {
+    rmSync(tmp, { recursive: true, force: true });
+    if (e.code === "EPERM" || e.code === "EACCES") return t.skip("lien symbolique impossible ici");
+    throw e;
+  }
+  try {
+    const vide = mkdtempSync(join(tmpdir(), "wl-vide-"));
+    const r = spawnSync(process.execPath, [join(lien, "worklog", "chantiers-tracker.mjs"), "--root", vide], { encoding: "utf8" });
+    rmSync(vide, { recursive: true, force: true });
+    // Sans la garde sur chemins réels, le script sortirait en silence avec le code 0.
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /introuvable/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("estLance : chemin réel, repli sur resolve si le fichier n'existe pas", () => {
+  const fichier = fileURLToPath(import.meta.url);
+  assert.equal(estLance(import.meta.url, fichier), true);
+  assert.equal(estLance(import.meta.url, null), false);
+  assert.equal(estLance(import.meta.url, join(tmpdir(), "absent-xyz.mjs")), false);
+});
+
+test("heures affichées à l'heure locale du poste (AAAA-MM-JJ HH:MM)", () => {
+  const code = `import { date } from ${JSON.stringify(pathToFileURL(join(ROOT, "scripts", "worklog", "client.mjs")).href)};
+console.log(date("2026-10-24T14:30:00Z")); console.log(date("2026-01-15T14:30:00.123Z")); console.log(date("n'importe quoi")); console.log(date(null) === "");`;
+  const lancer = (tz) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", env: { ...process.env, TZ: tz } }).stdout.trim().split("\n");
+  assert.deepEqual(lancer("Europe/Paris"), ["2026-10-24 16:30", "2026-01-15 15:30", "n'importe quoi", "true"]);
+  assert.deepEqual(lancer("UTC"), ["2026-10-24 14:30", "2026-01-15 14:30", "n'importe quoi", "true"]);
 });

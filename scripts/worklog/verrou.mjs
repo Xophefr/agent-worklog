@@ -5,7 +5,7 @@
 //   node scripts/worklog/verrou.mjs --indexes  fichiers indexés (crochet pre-commit)
 //   node scripts/worklog/verrou.mjs --push     lit les lignes de pre-push sur l'entrée
 //   node scripts/worklog/verrou.mjs installer  écrit les crochets pre-commit et pre-push
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -200,4 +200,6 @@ function main(argv) {
   return 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) process.exitCode = main(process.argv.slice(2));
+// Version locale de config.mjs#estLance : verrou.mjs reste autonome (copié seul dans le dépôt qui le pose).
+const reel = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+if (process.argv[1] && reel(process.argv[1]).toLowerCase() === reel(fileURLToPath(import.meta.url)).toLowerCase()) process.exitCode = main(process.argv.slice(2));

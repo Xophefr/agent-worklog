@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { estLance } from "./config.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const SKILL = join(ROOT, "integrations", "claude-code", "skills", "chantiers", "SKILL.md");
@@ -19,7 +20,7 @@ export function agentsFromSkill(skill) {
   }).join("\n");
 }
 
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {
+if (estLance(import.meta.url)) {
   writeFileSync(AGENTS, agentsFromSkill(readFileSync(SKILL, "utf8")), "utf8");
   console.log("écrit integrations/codex/AGENTS.md");
 }
