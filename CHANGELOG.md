@@ -6,6 +6,33 @@ Mettre un projet à jour : `node scripts/worklog/install.mjs <dossier du projet>
 
 Le fichier ne décrit que ce qui est livré. Publier une version : ajouter en tête une section `## x.y.z · date` qui décrit ses changements, porter le numéro dans `package.json`, puis `git tag -a vx.y.z` et une release GitHub qui reprend la section.
 
+## 2.2.0 · 2026-11-11
+
+### Corrigé
+
+- **Notes perdues dans le tableau** : ce qui était tapé pendant un envoi n'était jamais enregistré, et la frappe suivante était refusée (« Modifié ailleurs entre-temps ») jusqu'à un rechargement qui effaçait le texte. La valeur envoyée devient la référence et la fin de la saisie repart au passage suivant.
+- **Échec d'enregistrement** : la saisie repart seule (5 s, puis jusqu'à 30 s), au lieu d'attendre une nouvelle frappe.
+- **Fiche de tâche ouverte** : elle suit maintenant la relecture automatique ; une note changée ailleurs y restait ancienne et la saisie suivante l'écrasait sans avertissement.
+- Un attribut de la liste de priorisation n'était pas échappé.
+
+### Ajouté
+
+- **Brouillon des notes** : une note pas encore enregistrée est gardée dans le navigateur et repart à la réouverture du tableau. Si la note a changé ailleurs entre-temps, rien n'est envoyé : la fiche montre le texte retrouvé (« Remplacer la note par ce texte » ou « Jeter ce texte »).
+- Envoi immédiat quand l'onglet passe à l'arrière-plan ou se ferme ; avertissement avant de quitter une page qui n'a pas tout enregistré ; « Recharger » attend la fin de l'enregistrement ; notes limitées à 4 000 caractères dès la saisie (le serveur coupait sans le dire).
+- **Jetons du BFF** : `npm run bff -- jetons` (liste, sans les jetons eux-mêmes) et `npm run bff -- revoquer <id>`.
+
+### Modifié
+
+- **Relecture du tableau** : la version déjà chargée part avec la demande (ETag) ; le BFF, l'accueil et `npm run tracker` répondent 304 quand rien n'a changé, au lieu de renvoyer tout le projet toutes les 15 secondes.
+- **BFF** : réponses compressées (gzip) ; lecture d'un projet en cache tant que sa version ne bouge pas ; index de la version et du journal (migration 3, appliquée au démarrage) ; identifiants d'opération de plus de 180 jours purgés ; l'historique d'une spec garde sa taille et son empreinte au lieu de deux copies du texte ; taille des demandes limitée par route (import 64 Mo, opérations 16 Mo, le reste 2 Mo).
+- **Tableau** : recherche appliquée après une courte pause de frappe ; tables d'accès aux chantiers et aux tâches calculées une fois par chargement.
+- **Sécurité des pages** : politique `Content-Security-Policy` sur le tableau et l'accueil (scripts de leur seule origine) ; police Atkinson Hyperlegible servie par l'outil (`docs/tracker/fonts/`, licence OFL), plus aucun appel à Google Fonts.
+- **Fichiers d'un projet** servis par l'accueil (`/p/<id>/fichiers/`) et par `npm run tracker` : types reliés par le tableau seulement, refus des noms qui évoquent un secret, de `node_modules` et des liens symboliques qui sortent du dossier.
+
+### À faire dans un projet
+
+Relancer l'installation (`docs/tracker/fonts/` est nouveau). En mode base, redémarrer l'accueil (`npm run accueil`) et le BFF pour recevoir les changements du serveur ; le tableau, servi par l'accueil depuis ce dépôt, profite des corrections des notes dès qu'il est rechargé.
+
 ## 2.1.1 · 2026-10-24
 
 ### Corrigé

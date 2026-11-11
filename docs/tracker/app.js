@@ -26,6 +26,7 @@
   const store = {
     get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch { /* stockage indisponible */ } },
+    del(k) { try { localStorage.removeItem(KEY + k); } catch { /* stockage indisponible */ } },
   };
 
   let data = null;
@@ -41,7 +42,14 @@
   let base = { chantiers: new Map(), items: new Map() };      // id -> {champ: valeur au chargement}
   let pollTimer = null;
   let opener = null;
-  const byId = () => Object.fromEntries(data.chantiers.map((c) => [c.id, c]));
+  let etag = null;  // version des donnees deja chargees (ETag) : la relecture ne retelecharge que ce qui a change
+  // Tables d'acces, refaites seulement quand les donnees sont remplacees (ou un rattachement change) :
+  // le rendu les appelait des centaines de fois, chaque appel reparcourait tout.
+  let idsDe = null, ids = null, parChDe = null, parCh = null;
+  const byId = () => {
+    if (idsDe !== data.chantiers) { idsDe = data.chantiers; ids = Object.fromEntries(data.chantiers.map((c) => [c.id, c])); }
+    return ids;
+  };
 
   // ---------- utilitaires ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -56,7 +64,13 @@
   const plain = (s) => String(s ?? '').replace(/[`*~]/g, '');
   const pill = (cls, txt, sr = '') => `<span class="pill ${esc(cls)}">${sr ? `<span class="sr">${esc(sr)} </span>` : ''}${esc(txt)}</span>`;
   const prio = (p) => pill(p, p, 'priorité');
-  const itemsOf = (cid) => data.items.filter((i) => i.chantier === cid);
+  const itemsOf = (cid) => {
+    if (parChDe !== data.items) {
+      parChDe = data.items; parCh = new Map();
+      for (const i of data.items) { if (!parCh.has(i.chantier)) parCh.set(i.chantier, []); parCh.get(i.chantier).push(i); }
+    }
+    return parCh.get(cid) || [];
+  };
   const lotsOf = (cid) => (byId()[cid] && byId()[cid].lots) || [];
   const effLot = (i) => i.lot || i.lot_spec || null;
   const LOT_ETATS = { fait: 'Fait', en_cours: 'En cours', a_faire: 'À faire', vide: 'Aucune tâche' };
@@ -153,8 +167,8 @@
       <span class="row-meta"><span class="etat">${pill(c.colonne, COLS[c.colonne] || c.colonne, 'état')}${c.orphelin ? ' ' + pill('orphan', 'orphelin') : ''}</span>
       <span class="prog">${n.total ? `${bar(n)}${progText(n)}` : '<span aria-hidden="true">—</span>'}</span></span>
       <span class="moves">
-        <button type="button" data-move="-1"${pos === 0 ? ' disabled' : ''} aria-label="Monter ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${c.priorite})"><svg aria-hidden="true"><use href="#i-up"/></svg></button>
-        <button type="button" data-move="1"${pos === count - 1 ? ' disabled' : ''} aria-label="Descendre ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${c.priorite})"><svg aria-hidden="true"><use href="#i-down"/></svg></button></span>
+        <button type="button" data-move="-1"${pos === 0 ? ' disabled' : ''} aria-label="Monter ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${esc(c.priorite)})"><svg aria-hidden="true"><use href="#i-up"/></svg></button>
+        <button type="button" data-move="1"${pos === count - 1 ? ' disabled' : ''} aria-label="Descendre ${esc(c.id)} (rang ${pos + 1} sur ${count} en ${esc(c.priorite)})"><svg aria-hidden="true"><use href="#i-down"/></svg></button></span>
     </div>`;
   }
 
@@ -230,7 +244,7 @@
         <td class="c-st"><select data-f="statut" aria-label="Statut de ${esc(i.id)}">${options(STATUTS, i.statut)}</select></td>
         <td class="c-ch" data-label="Chantier"><select data-f="chantier" aria-label="Chantier de ${esc(i.id)}">${chOpts(i.chantier)}</select></td>
         <td class="c-lot" data-label="Lot">${lotCell(i)}</td>
-        <td class="c-note" data-label="Note"><input class="note-in" data-f="note" value="${esc(i.note)}" aria-label="Note sur ${esc(i.id)}"></td></tr>`).join('')}
+        <td class="c-note" data-label="Note"><input class="note-in" data-f="note" maxlength="4000" value="${esc(i.note)}" aria-label="Note sur ${esc(i.id)}"></td></tr>`).join('')}
       </tbody></table></div>`;
   }
 
@@ -382,7 +396,7 @@
       ${sec('Docs', `<div class="docs">${docLinks(c.doc || c.preuve)}</div>`)}
       ${sec('Dernière MAJ', esc(c.clos_le || c.maj))}
       ${spec ? `<h3>Spec</h3><div class="txt"><code>${esc(spec)}</code> <button type="button" class="btn" data-act="spec" data-cible="${esc(spec)}">Afficher la spec</button></div><div class="txt spec" id="specTxt"></div>` : ''}
-      <h3><label for="drNote">Ma note</label></h3><textarea id="drNote" data-ch="note">${esc(c.note)}</textarea>
+      <h3><label for="drNote">Ma note</label></h3><textarea id="drNote" data-ch="note" maxlength="4000">${esc(c.note)}</textarea>${blocBrouillon('chantiers', c.id)}
       ${its.length ? `<h3>Tâches (${its.length})</h3>${lotGroups(c, its)}` : ''}`,
     c.id, plain(c.titre));
     $('#drBody').dataset.ch = c.id;
@@ -422,7 +436,7 @@
       ${i.attendu ? `<h3>Attendu</h3><div class="txt">${md(i.attendu)}</div>` : ''}
       <h3>Chantier</h3><div class="txt">${c ? `<a href="#${esc(c.id)}">${esc(c.id)} — ${esc(plain(c.titre))}</a>` : 'aucun'}</div>
       ${c && effLot(i) ? `<h3>Lot</h3><div class="txt">${esc(lotLabel((c.lots || []).find((l) => l.id === effLot(i)) || { id: effLot(i), titre: '?' }))}${i.lot ? ' (choisi ici)' : ' (spec)'}</div>` : ''}
-      <h3><label for="itNote">Note</label></h3><div data-item="${esc(i.id)}"><textarea id="itNote" data-f="note">${esc(i.note)}</textarea></div>`, i.id, plain(i.titre));
+      <h3><label for="itNote">Note</label></h3><div data-item="${esc(i.id)}"><textarea id="itNote" data-f="note" maxlength="4000">${esc(i.note)}</textarea></div>${blocBrouillon('items', i.id)}`, i.id, plain(i.titre));
     delete $('#drBody').dataset.ch;
   }
   function route() {
@@ -446,7 +460,7 @@
   const HORS_LIGNE = () => !!(data && data.meta && data.meta.horsLigne);
   const ECRIT = 'select[data-f], input[data-f], textarea[data-f], select[data-ch], input[data-ch], textarea[data-ch], [data-act-main], [data-move], '
     + '[data-act="modifier"], [data-act="clore"], [data-act="nouvelle-tache"], [data-act="hist"], [data-act="spec"], [data-act="exporter"], '
-    + 'form[data-form] [type="submit"], #reglagesBtn';
+    + '[data-act="br-reprendre"], form[data-form] [type="submit"], #reglagesBtn';
   let verifTimer = null;
   function appliquerHorsLigne() {
     const hl = HORS_LIGNE();
@@ -480,6 +494,7 @@
     const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     data = await r.json();
+    etag = data.meta && data.meta.horsLigne ? null : r.headers.get('ETag');
     snapshot(); render(); syncInfo();
   }
   const court = (v) => { const t = v == null || v === '' ? '—' : String(v); return t.length > 160 ? t.slice(0, 160) + '…' : t; };
@@ -651,6 +666,62 @@
     }
   }
 
+  // ---------- brouillon des notes ----------
+  // Une note tapee mais pas encore enregistree est gardee dans ce navigateur (localStorage, par projet) : onglet
+  // ferme, page rechargee ou serveur coupe, elle repart a la reouverture. Seulement si la note n'a pas change
+  // ailleurs entre-temps ; sinon le texte est montre dans la fiche, et l'on choisit de le reprendre ou de le jeter.
+  const BR = 'brouillon', BRC = 'brouillon-conflits';
+  const cleBr = (kind, id) => kind + '|' + id;
+  function garderBrouillon() {
+    const b = {};
+    for (const kind of ['chantiers', 'items']) {
+      for (const [id, fields] of dirty[kind]) {
+        if (!fields.has('note')) continue;
+        const row = data[kind].find((x) => x.id === id);
+        if (row) b[cleBr(kind, id)] = { v: row.note ?? '', base: (base[kind].get(id) || {}).note ?? '' };
+      }
+    }
+    if (Object.keys(b).length) store.set(BR, b); else store.del(BR);
+  }
+  function restaurerBrouillon() {
+    const b = store.get(BR, null);
+    if (!b || typeof b !== 'object') return 0;
+    const conflits = store.get(BRC, {});
+    let n = 0;
+    for (const [k, e] of Object.entries(b)) {
+      const [kind, id] = [k.slice(0, k.indexOf('|')), k.slice(k.indexOf('|') + 1)];
+      const row = data[kind] && data[kind].find((x) => x.id === id);
+      if (!row || !e || typeof e.v !== 'string') continue;
+      const cur = row.note ?? '';
+      if (cur === e.v) continue;                                  // deja enregistree
+      if (cur === (e.base ?? '')) { row.note = e.v; mark(kind, id, 'note'); n += 1; continue; }  // personne d'autre n'y a touche
+      conflits[k] = e.v;                                          // changee ailleurs : on ne choisit pas a sa place
+    }
+    store.del(BR);
+    if (Object.keys(conflits).length) store.set(BRC, conflits); else store.del(BRC);
+    if (n) garderBrouillon();
+    return n;
+  }
+  function blocBrouillon(kind, id) {
+    const v = store.get(BRC, {})[cleBr(kind, id)];
+    if (typeof v !== 'string') return '';
+    return `<div class="brouillon" role="group" aria-label="Texte non enregistré">
+      <p role="alert">Texte non enregistré, retrouvé dans ce navigateur : la note a changé ailleurs entre-temps, il n’a pas été envoyé.</p>
+      <textarea readonly aria-label="Texte non enregistré">${esc(v)}</textarea>
+      <div class="row-btns"><button type="button" class="btn primary" data-act="br-reprendre" data-kind="${kind}" data-cible="${esc(id)}">Remplacer la note par ce texte</button>
+      <button type="button" class="btn" data-act="br-jeter" data-kind="${kind}" data-cible="${esc(id)}">Jeter ce texte</button></div></div>`;
+  }
+  function finBrouillon(kind, id, reprendre) {
+    const c = store.get(BRC, {});
+    const v = c[cleBr(kind, id)];
+    delete c[cleBr(kind, id)];
+    if (Object.keys(c).length) store.set(BRC, c); else store.del(BRC);
+    const row = data[kind].find((x) => x.id === id);
+    if (reprendre && row && typeof v === 'string') { row.note = v; mark(kind, id, 'note'); changed(false); }
+    if (kind === 'chantiers') showChantier(id); else showItem(id);
+    const n = $(kind === 'chantiers' ? '#drNote' : '#itNote'); if (n) n.focus();
+  }
+
   // ---------- edition ----------
   function renumber() {
     const ord = [...data.chantiers].sort((a, b) => PRIOS.indexOf(a.priorite) - PRIOS.indexOf(b.priorite) || a.rang - b.rang);
@@ -684,7 +755,7 @@
     i[f] = f === 'chantier' || f === 'lot' ? (v || null) : v;
     mark('items', id, f);
     if (f === 'statut') { if (bouges.includes(id)) bouges.splice(bouges.indexOf(id), 1); bouges.unshift(id); }
-    if (f === 'chantier') { i.lot = null; mark('items', id, 'lot'); }  // un lot n'a de sens que dans son chantier
+    if (f === 'chantier') { i.lot = null; mark('items', id, 'lot'); parChDe = null; }  // un lot n'a de sens que dans son chantier
     changed(f !== 'note');
   }
   function mark(kind, id, field) {
@@ -706,6 +777,7 @@
       if (focusSel && !isOpen()) { const n = $(focusSel); if (n) n.focus(); }
     }
     setState('Modifications non enregistrées…');
+    garderBrouillon();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 700);
   }
@@ -718,66 +790,102 @@
       if (!row) continue;
       const set = {}, b = base[kind].get(id) || {};
       const was = {};
-      for (const f of fields) { set[f] = f === 'lot' || f === 'chantier' ? (row[f] || null) : row[f]; was[f] = b[f] ?? null; }
+      for (const f of fields) { set[f] = envoi(row, f); was[f] = b[f] ?? null; }
       out.push({ id, set, base: was });
     }
     return out;
   }
+  const envoi = (row, f) => (f === 'lot' || f === 'chantier' ? (row[f] || null) : row[f]);
+  const enSuspens = () => saving || dirty.chantiers.size > 0 || dirty.items.size > 0;
+  let essaiMs = 0;  // delai du prochain essai apres un echec (double a chaque echec, 30 s au plus)
 
-  async function save() {
+  async function save(opts) {
+    clearTimeout(saveTimer); saveTimer = null;
     if (saving) { saveTimer = setTimeout(save, 400); return; }
     const patch = { chantiers: patchOf('chantiers', data.chantiers), items: patchOf('items', data.items) };
     if (!patch.chantiers.length && !patch.items.length) { setState(''); return; }
     saving = true;
     try {
-      const r = await fetch('save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patch }) });
+      const r = await fetch('save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patch }), keepalive: !!(opts && opts.keepalive) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      essaiMs = 0;
       data.meta.version = j.version;
       data.meta.edition = j.edition;
-      // Ecrit : ces champs ne sont plus « a envoyer », et leur nouvelle valeur devient la reference.
-      const conflicts = j.conflicts || [];
-      const refused = new Set(conflicts.map((c) => (c.kind === 'chantier' ? 'chantiers' : 'items') + '|' + c.id + '|' + c.champ));
+      const KIND = { chantier: 'chantiers', tache: 'items' };
+      // Un « conflit » dont la valeur en place est celle qu'on envoyait n'en est pas un : c'est un envoi
+      // deja arrive (reponse perdue, puis nouvel essai).
+      const conflicts = (j.conflicts || []).filter((c) => {
+        const p = patch[KIND[c.kind] || 'items'].find((x) => x.id === c.id);
+        return !(p && String(p.set[c.champ] ?? '') === String(c.actuel ?? ''));
+      });
+      const refused = new Set(conflicts.map((c) => (KIND[c.kind] || 'items') + '|' + c.id + '|' + c.champ));
+      // Ecrit : la valeur ENVOYEE devient la reference. Un champ n'est plus « a envoyer » que si la page porte
+      // encore cette valeur : ce qu'on a tape pendant l'envoi repart au passage suivant (sinon cette fin de
+      // saisie n'etait jamais enregistree, et la suivante etait refusee comme « modifiee ailleurs »).
+      let reste = false;
       for (const kind of ['chantiers', 'items']) {
-        for (const [id, fields] of [...dirty[kind]]) {
-          const row = data[kind].find((x) => x.id === id);
-          for (const f of [...fields]) {
-            if (refused.has(kind + '|' + id + '|' + f)) continue;
-            if (row) { const b = base[kind].get(id) || {}; b[f] = row[f] ?? null; base[kind].set(id, b); }
+        for (const p of patch[kind]) {
+          const fields = dirty[kind].get(p.id);
+          if (!fields) continue;
+          const row = data[kind].find((x) => x.id === p.id);
+          for (const f of Object.keys(p.set)) {
+            if (refused.has(kind + '|' + p.id + '|' + f)) continue;
+            const b = base[kind].get(p.id) || {}; b[f] = p.set[f] ?? null; base[kind].set(p.id, b);
+            if (row && envoi(row, f) !== p.set[f]) { reste = true; continue; }
             fields.delete(f);
           }
-          if (!fields.size) dirty[kind].delete(id);
+          if (!fields.size) dirty[kind].delete(p.id);
         }
       }
+      garderBrouillon();  // ce qui est enregistre sort du brouillon ; un champ refuse y reste
       if (conflicts.length) {
         // Refuse champ par champ : on NE perd pas la saisie, on dit quoi et on recharge le reste.
         const noms = conflicts.map((c) => `${c.id} (${c.champ})`).join(', ');
         setState(`Modifié ailleurs entre-temps, non écrasé : ${noms}. Recharger pour voir la valeur du fichier.`, 'err');
+      } else if (reste) {
+        setState('Modifications non enregistrées…');
       } else {
         setState('Enregistré à ' + new Date().toLocaleTimeString('fr-FR'), 'ok');
       }
+      if (reste && !saveTimer) saveTimer = setTimeout(save, 300);
       syncInfo();
     } catch (e) {
-      // La saisie reste dans `dirty` : le prochain passage la renverra.
-      setState('Échec de l\'enregistrement : ' + e.message + ' (saisie conservée, nouvel essai au prochain changement)', 'err');
+      // La saisie reste dans `dirty` : elle repart toute seule, sans attendre un nouveau changement.
+      essaiMs = Math.min((essaiMs || 2500) * 2, 30000);
+      setState(`Échec de l'enregistrement : ${e.message} (saisie conservée dans cette page, nouvel essai dans ${Math.round(essaiMs / 1000)} s — ne pas fermer l'onglet)`, 'err');
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, essaiMs);
     } finally { saving = false; }
   }
+  // Une saisie pas encore enregistree : le navigateur demande avant de quitter la page, et l'envoi part tout de
+  // suite quand l'onglet passe a l'arriere-plan ou se ferme (keepalive : il survit a la fermeture).
+  window.addEventListener('beforeunload', (e) => { if (enSuspens()) { e.preventDefault(); e.returnValue = ''; } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && data && !saving && enSuspens()) save({ keepalive: true }); });
 
   // Le fichier est reecrit par `npm run chantiers` a chaque passage d'une session.
   // Sans cette relecture, le tableau affichait un etat fige pendant des heures.
   async function poll() {
     if (saving || dirty.chantiers.size || dirty.items.size) return;   // jamais par-dessus une saisie
     if (document.activeElement && document.activeElement.closest('[data-f], [data-ch]')) return;
+    if (HORS_LIGNE()) return;   // hors ligne : verifierRetour() s'en charge
     try {
-      const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
-      if (!r.ok) return;
+      // La version deja chargee part avec la demande : 304 si rien n'a change, sans retelecharger le projet.
+      const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store', headers: etag ? { 'If-None-Match': etag } : {} });
+      if (r.status === 304 || !r.ok) return;
       const fresh = await r.json();
-      if (!fresh || !fresh.meta || HORS_LIGNE()) return;   // hors ligne : verifierRetour() s'en charge
+      if (!fresh || !fresh.meta || HORS_LIGNE()) return;
+      if (!fresh.meta.horsLigne) etag = r.headers.get('ETag');
       if (fresh.meta.version === data.meta.version && !fresh.meta.horsLigne) return;
+      if (saving || dirty.chantiers.size || dirty.items.size) return;   // saisie commencee pendant la lecture
       data = fresh;
       snapshot();
       render();
+      // La fiche ouverte suit les donnees : sinon une note changee ailleurs y restait ancienne, et la
+      // saisie suivante l'ecrasait sans que le verrou par champ le voie.
+      const h = decodeURIComponent(location.hash.slice(1));
       if (isOpen() && $('#drBody').dataset.ch) showChantier($('#drBody').dataset.ch);
+      else if (isOpen() && !formEnCours && h.startsWith('item/') && $('#itNote')) showItem(h.slice(5));
       setState('Rechargé : le fichier a changé (v' + data.meta.version + ')', 'ok');
       syncInfo();
     } catch { /* hors ligne : on retentera */ }
@@ -798,6 +906,7 @@
       const r = await fetch('chantiers.json?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       data = await r.json();
+      etag = data.meta && data.meta.horsLigne ? null : r.headers.get('ETag');
     } catch (e) {
       $('#view').innerHTML = `<p class="empty">Impossible de lire <code>chantiers.json</code> (${esc(e.message)}). Lancer <code>npm run chantiers</code>, puis <code>npm run tracker</code> et ouvrir l'adresse affichée (une page ouverte en <code>file://</code> ne peut pas lire le fichier).</p>`;
       return;
@@ -817,7 +926,10 @@
     clearInterval(pollTimer);
     pollTimer = setInterval(poll, 15000);
     syncInfo(); setState('');
+    const repris = HORS_LIGNE() ? 0 : restaurerBrouillon();
     render(); route();
+    if (repris) { setState(`Saisie non enregistrée retrouvée (${repris} note(s)) : envoi…`); save(); }
+    else if (Object.keys(store.get(BRC, {})).length) setState('Un texte non enregistré a été retrouvé, la note ayant changé ailleurs : voir la fiche concernée', 'err');
   }
 
   // ---------- export Excel ----------
@@ -900,7 +1012,13 @@
     if (!b) return;
     view = b.dataset.view; store.set('view', view); render();
   });
-  Object.values(F).forEach((el) => el.addEventListener('input', () => { saveFilters(); filtersCount(); render(); }));
+  // La recherche attend une courte pause de frappe : chaque lettre redessinait toute la vue.
+  let qTimer = null;
+  Object.values(F).forEach((el) => el.addEventListener('input', () => {
+    clearTimeout(qTimer);
+    const go = () => { saveFilters(); filtersCount(); render(); };
+    if (el === F.q) qTimer = setTimeout(go, 180); else go();
+  }));
   // Telephone : les filtres se replient ; le bouton dit combien sont actifs (hors recherche, toujours visible).
   function filtersCount() {
     const n = Object.entries(F).filter(([k, el]) => k !== 'q' && (el.type === 'checkbox' ? el.checked : el.value)).length;
@@ -1038,6 +1156,7 @@
     const b = e.target.closest('button[data-act]');
     if (!b) return;
     const a = b.dataset.act, k = b.dataset.kind, id = b.dataset.cible;
+    if (a === 'br-reprendre' || a === 'br-jeter') { finBrouillon(k, id, a === 'br-reprendre'); return; }
     if (a === 'annuler') { const f = formEnCours; formEnCours = null; if (f) f.retour(); return; }
     if (a === 'abandonner') { formEnCours = null; closeDrawer(); return; }
     if (a === 'continuer') { b.closest('.abandon').remove(); const first = $('#drBody form[data-form] input, #drBody form[data-form] textarea, #drBody form[data-form] select'); if (first) first.focus(); return; }
@@ -1113,7 +1232,11 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerOuDemander(); });
   window.addEventListener('hashchange', () => { if (location.hash) route(); else closeDrawer(); });
 
-  $('#reloadBtn').addEventListener('click', load);
+  // Recharger remplace les donnees de la page : jamais par-dessus une saisie pas encore enregistree.
+  $('#reloadBtn').addEventListener('click', () => {
+    if (enSuspens()) { setState('Saisie pas encore enregistrée : recharger après l\'enregistrement', 'err'); if (!saving) save(); return; }
+    load();
+  });
   $('#reglagesBtn').addEventListener('click', () => { if (BASE()) reglages(); });
   $('#exportBtn').addEventListener('click', exportXlsx);
   const applyTheme = (t) => {

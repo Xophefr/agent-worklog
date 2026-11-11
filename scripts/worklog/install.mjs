@@ -17,6 +17,7 @@ import { addProject, loadRegistry, registryFile, saveRegistry } from "./registre
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
 const UI_FILES = ["index.html", "app.js", "xlsx.js", "style.css", "save.php", ".gitignore"];
+export const FONTS = ["atkinson-400.woff2", "atkinson-700.woff2", "OFL.txt"];
 // Restent dans ce dépôt : l'installation, l'accueil multi-projets, le BFF (et ses pilotes de base,
 // dans base/, jamais copié) et ce qui ne sert qu'à eux. Un projet suivi n'a aucune dépendance.
 const OUTIL_SEUL = ["install.mjs", "sync-agents.mjs", "VERSION", "accueil.mjs", "registre.mjs", "resume.mjs", "bff.mjs", "operations.mjs", "export-md.mjs", "verrou.mjs"];
@@ -45,6 +46,8 @@ export function installInto(dest, { nom, out = console.log } = {}) {
   const ui = at(dest, cfg, "tracker");
   mkdirSync(ui, { recursive: true });
   for (const f of UI_FILES) { copyFileSync(join(SRC, "docs", "tracker", f), join(ui, f)); log("copié", join(ui, f)); }
+  mkdirSync(join(ui, "fonts"), { recursive: true });
+  for (const f of FONTS) { copyFileSync(join(SRC, "docs", "tracker", "fonts", f), join(ui, "fonts", f)); log("copié", join(ui, "fonts", f)); }
   const sd = join(dest, "scripts", "worklog");
   mkdirSync(sd, { recursive: true });
   for (const f of readdirSync(HERE, { withFileTypes: true }).filter((e) => e.isFile() && !e.name.includes(".test.") && !OUTIL_SEUL.includes(e.name)).map((e) => e.name)) { copyFileSync(join(HERE, f), join(sd, f)); log("copié", join(sd, f)); }

@@ -228,7 +228,7 @@ Dans tous les cas, l'agent a seulement besoin de lancer `npm run chantiers` et d
 | `npm run chantiers -- --session <nom> --lot ID=<n>` | place une tâche dans un lot de la spec |
 | `npm run tracker` | sert le tableau sur `http://localhost:4173/` (`-- --port 8080` pour changer) |
 | `npm run accueil` | (dans ce dépôt) sert l'accueil de tous les projets inscrits sur `http://localhost:4170/` |
-| `npm run bff` | (dans ce dépôt) sert le BFF du mode base sur `http://localhost:4180/` ; `-- jeton interface` ou `-- jeton <projet>` crée un jeton |
+| `npm run bff` | (dans ce dépôt) sert le BFF du mode base sur `http://localhost:4180/` ; `-- jeton interface` ou `-- jeton <projet>` crée un jeton, `-- jetons` les liste, `-- revoquer <id>` en retire un |
 | `npm run code:stats` | ajoute le relevé du jour à l'onglet « Code » (`-- --check` : affiche seulement) |
 | `npm run agents:sync` | régénère le bloc `AGENTS.md` depuis le skill Claude Code (dans ce dépôt) |
 | `npm run verrou` | (dans ce dépôt) cherche clés, IP, chemins et mots interdits dans les fichiers suivis |
@@ -256,7 +256,9 @@ npm run chantiers -- --session api-pagination \
 | **Terminés & clos** | chantiers fermés, avec leur preuve |
 | **Code** | lignes de code et de tests par groupe, avec l'historique |
 
-Chaque chantier s'ouvre dans une fiche : état, prochaine action, décisions, liens vers ses docs, tâches groupées par lot, note du responsable. Le tableau relit le fichier toutes les 15 secondes : ce qu'un agent vient d'écrire apparaît sans recharger la page.
+Chaque chantier s'ouvre dans une fiche : état, prochaine action, décisions, liens vers ses docs, tâches groupées par lot, note du responsable. Le tableau relit le fichier toutes les 15 secondes : ce qu'un agent vient d'écrire apparaît sans recharger la page (la fiche ouverte aussi). Rien n'est retéléchargé quand rien n'a changé (réponse 304).
+
+**Notes** (4 000 caractères au plus) : enregistrées environ une seconde après la dernière frappe. Ce qui est tapé pendant un envoi part au suivant ; un échec est réessayé seul (5 s, puis jusqu'à 30 s) ; l'envoi part aussitôt quand l'onglet passe à l'arrière-plan ou se ferme, et le navigateur prévient avant de quitter une page qui n'a pas tout enregistré. Une note pas encore enregistrée est aussi gardée dans le navigateur : à la réouverture du tableau, elle repart, sauf si la note a changé ailleurs entre-temps ; la fiche montre alors le texte retrouvé, avec « Remplacer la note par ce texte » ou « Jeter ce texte ».
 
 **Export Excel** : le bouton de téléchargement, en haut à droite, enregistre un classeur `.xlsx` à deux feuilles, « Chantiers » (état, priorité, avancement, prochaine action, décisions, preuve, note) et « Tâches » (statut, chantier, lot, attendu, dernier suivi, note). Il porte tout le registre, quels que soient les filtres affichés : chaque feuille a son en-tête figé et un filtre automatique. Le fichier est écrit dans le navigateur, sans dépendance, et s'ouvre dans Excel, LibreOffice et Google Sheets.
 
@@ -280,6 +282,8 @@ node scripts/worklog/accueil.mjs ajouter ../mon-projet [--id mon-id]
 node scripts/worklog/accueil.mjs retirer mon-id      # retire la carte, ne touche aucun fichier du projet
 node scripts/worklog/accueil.mjs liste
 ```
+
+Les fichiers d'un projet ouverts depuis le tableau (`/p/<id>/fichiers/…`, et `npm run tracker`) sont filtrés : seulement les types que le tableau relie (`.md`, `.json`, `.yml`, code…), jamais un fichier caché, un nom qui évoque un secret (`secret`, `credential`, `password`, clés), `node_modules` ni un lien qui sort du dossier. Les pages du tableau et de l'accueil n'exécutent que leurs propres scripts (politique `Content-Security-Policy`) et la police est servie par l'outil lui-même : aucun appel à un service tiers.
 
 L'identifiant (`/p/<id>/`) est tiré du nom du projet (`projet` dans `tracker.config.json`) et ne change plus une fois inscrit. L'accueil sert toujours l'interface de ce dépôt, la plus récente, avec les données de chaque projet ; une carte signale un projet dont l'outil installé est plus ancien (« relancer install.mjs »). Il écrit dans un projet exactement comme le tableau seul : même protocole, mêmes garde-fous, une file d'écriture par projet. Il n'écoute que sur `127.0.0.1`.
 
@@ -306,6 +310,8 @@ navigateur ──> accueil local ───┘     (jetons, historique)
 5. Passer un projet en base : bouton « Passer en base » de sa carte, ou `npm run chantiers -- --importer --bff http://localhost:4180` dans le projet, ou `node scripts/worklog/install.mjs <dossier> --mode base --bff <url>`. L'import envoie tout (chantiers, tâches, statuts, priorités, notes, lots, journal, specs, et une copie brute des `.md`), passe `tracker.config.json` en `"mode": "base"` et garde le jeton du projet dans `~/.agent-worklog/jetons.json`, jamais dans le dépôt.
 
 Un jeton n'est envoyé qu'au BFF qui l'a émis : une adresse changée dans `tracker.config.json` ne reçoit rien. Le navigateur ne parle jamais au BFF : l'accueil relaie, avec son jeton et votre nom.
+
+Le BFF ne garde que l'empreinte des jetons : `npm run bff -- jetons` les liste (début d'empreinte, projet, nom, date), `npm run bff -- revoquer <id>` en retire un, qui cesse aussitôt de marcher. Chaque import crée un jeton de projet sans retirer les anciens : faire le ménage après un nouvel import.
 
 ### Au quotidien
 

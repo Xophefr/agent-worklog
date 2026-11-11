@@ -6,6 +6,9 @@
  * du réglage du navigateur : c'est elle qui fixe la taille de lecture de toute la page.
  * Les contrastes texte / fond des tokens sont tous >= 4.5:1 (critère 3.2), dans les deux thèmes.
  */
+/* Police servie d'ici (fonts/, licence OFL dans fonts/OFL.txt) : aucun appel à un service tiers. */
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/atkinson-400.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/atkinson-700.woff2") format("woff2"); }
 :root {
   /* Fond gris très léger, surfaces blanches à ombre douce, liseré à la couleur du projet. */
   --bg: #f5f6f8;
@@ -414,6 +417,11 @@ form.edit .chk-line input, .radio-line input { width: 1.125rem; height: 1.125rem
 .radio-line { display: flex; gap: .625rem; align-items: flex-start; padding: .5rem 0; min-height: 2.75rem; cursor: pointer; }
 .radio-line span { display: flex; flex-direction: column; }
 .radio-line small { color: var(--muted); }
+
+/* Texte d'une note retrouve dans le navigateur, que l'on reprend ou que l'on jette. */
+.brouillon { margin-top: .75rem; padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface-2); }
+.brouillon p { margin: 0 0 .5rem; }
+.brouillon textarea { width: 100%; min-height: 6rem; }
 
 html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

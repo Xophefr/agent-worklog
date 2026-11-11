@@ -20,13 +20,13 @@
 // jamais au BFF lui-même.
 import { createServer } from "node:http";
 import { execFile, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { at, CONFIG_FILE, estLance, loadConfig } from "./config.mjs";
 import { installInto } from "./install.mjs";
-import { fail, isLocalHost, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
+import { etagFichier, fail, isLocalHost, pasChange, readBody, savePatch, send, serveFile, writeGuard } from "./http.mjs";
 import { garderCopie, lireCopie } from "./attente.mjs";
 import { addProject, loadRegistry, registryFile, removeProject, saveRegistry, slugId } from "./registre.mjs";
 import { summarize } from "./resume.mjs";
@@ -34,8 +34,9 @@ import { summarize } from "./resume.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
 const PORT = 4170;
-const UI = new Set(["index.html", "app.js", "style.css", "xlsx.js"]);
-const RACINE = new Set(["accueil.html", "accueil.js", "style.css"]);
+const POLICES = ["fonts/atkinson-400.woff2", "fonts/atkinson-700.woff2"];
+const UI = new Set(["index.html", "app.js", "style.css", "xlsx.js", ...POLICES]);
+const RACINE = new Set(["accueil.html", "accueil.js", "style.css", ...POLICES]);
 
 const jourLocal = () => new Date().toLocaleDateString("en-CA"); // AAAA-MM-JJ, heure du poste
 const lireJson = (p) => JSON.parse(readFileSync(p, "utf8"));
@@ -107,14 +108,14 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
   const auteur = () => { try { return readFileSync(join(maison, "auteur"), "utf8").trim() || userInfo().username; } catch { return userInfo().username; } };
 
   /** Requête au BFF d'un projet en base, avec le jeton d'interface lié et le nom de l'auteur. */
-  async function bffAppel(b, chemin, { method = "GET", body } = {}) {
+  async function bffAppel(b, chemin, { method = "GET", body, entetes = {} } = {}) {
     let origine;
     try { origine = new URL(b.bff).origin; } catch { throw new Error(`adresse de BFF invalide : ${b.bff}`); }
     const jeton = lies()[b.bff] || lies()[origine];
     if (!jeton) throw new Error(`BFF non lié : node scripts/worklog/accueil.mjs lier-bff ${origine} <jeton>`);
     try {
       // Un BFF qui ne répond pas donne une carte d'erreur à temps, sans figer les autres cartes.
-      return await fetch(origine + chemin, { method, body, signal: AbortSignal.timeout(Number(process.env.WORKLOG_DELAI_BFF) || 15000), headers: { Authorization: `Bearer ${jeton}`, "X-Worklog-Auteur": encodeURIComponent(auteur()), "Content-Type": "application/json" } });
+      return await fetch(origine + chemin, { method, body, signal: AbortSignal.timeout(Number(process.env.WORKLOG_DELAI_BFF) || 15000), headers: { ...entetes, Authorization: `Bearer ${jeton}`, "X-Worklog-Auteur": encodeURIComponent(auteur()), "Content-Type": "application/json" } });
     } catch { throw Object.assign(new Error("serveur injoignable"), { injoignable: true }); }
   }
   async function relayer(req, res, b, chemin, apres, horsLigne) {
@@ -125,12 +126,15 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       try { corps = await readBody(req); } catch (e) { return fail(res, e.code === 413 ? 413 : 400, e.message); }
     } else if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "méthode non admise");
     let r;
-    try { r = await bffAppel(b, chemin, { method: req.method === "POST" ? "POST" : "GET", body: corps }); } catch (e) {
+    // La version déjà vue par la page (If-None-Match) passe au BFF : rien ne change, rien ne traverse le tunnel.
+    const inm = req.method === "GET" && req.headers["if-none-match"] ? { "If-None-Match": String(req.headers["if-none-match"]) } : {};
+    try { r = await bffAppel(b, chemin, { method: req.method === "POST" ? "POST" : "GET", body: corps, entetes: inm }); } catch (e) {
       if (e.injoignable && horsLigne && horsLigne()) return;
       return fail(res, 502, e.message);
     }
+    if (r.status === 304) { res.writeHead(304, { ETag: r.headers.get("etag") || "", "Cache-Control": "no-store" }); return res.end(); }
     const buf = Buffer.from(await r.arrayBuffer());
-    if (apres && r.ok) return apres(JSON.parse(buf.toString("utf8")));
+    if (apres && r.ok) return apres(JSON.parse(buf.toString("utf8")), r.headers.get("etag"));
     return send(res, r.status, buf, r.headers.get("content-type") || "application/json; charset=utf-8");
   }
 
@@ -194,10 +198,13 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     return data;
   }
 
-  function donnees(res, reg, o) {
+  function donnees(req, res, reg, o) {
+    let etag = null;
+    try { etag = etagFichier(statSync(o.dataFile)); } catch { /* absent : lu plus bas, qui le dira */ }
+    if (pasChange(req, res, etag)) return undefined;
     let data;
     try { data = lireJson(o.dataFile); } catch { return fail(res, 500, "chantiers.json illisible"); }
-    return send(res, 200, JSON.stringify(completer(data, reg, o)));
+    return send(res, 200, JSON.stringify(completer(data, reg, o)), undefined, etag ? { ETag: etag } : {});
   }
 
   async function ecrire(req, res, faire) {
@@ -222,9 +229,9 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       if (rest === "chantiers.json") {
         const cible = { bff: o.base.bff, projet: o.base.projet };
         // Succès : la réponse brute du BFF est gardée (avant completer) pour les coupures. BFF injoignable : dernière copie.
-        const apres = (d) => {
+        const apres = (d, etag) => {
           try { garderCopie(maison, cible, d); } catch { /* copie impossible : la réponse part quand même */ }
-          return send(res, 200, JSON.stringify(completer(d, reg, o)));
+          return send(res, 200, JSON.stringify(completer(d, reg, o)), undefined, etag ? { ETag: etag } : {});
         };
         const horsLigne = () => {
           const copie = lireCopie(maison, cible);
@@ -239,7 +246,7 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
       if (rest === "code_stats.json" || rest === "save.php") return relayer(req, res, o.base, `/p/${P}/${rest}`);
       const api = /^api\/(operation|historique|spec|export)$/.exec(rest);
       if (api) return relayer(req, res, o.base, `/api/p/${P}/${api[1]}${q}`);
-      if (rest.startsWith("fichiers/") && o.dossier) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length), { "Content-Security-Policy": "sandbox" });
+      if (rest.startsWith("fichiers/") && o.dossier) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length), { "Content-Security-Policy": "sandbox" }, { projet: true });
       return fail(res, 404, "introuvable");
     }
     if (rest === "save.php") {
@@ -257,10 +264,10 @@ export function createAccueil({ registry = registryFile(), uiDir = join(SRC, "do
     if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "lecture seule");
     if (rest === "" || UI.has(rest)) return serveFile(req, res, uiDir, rest || "index.html");
     if (!o.dossier) return fail(res, 404, o.erreur);
-    if (rest === "chantiers.json") return o.dataFile ? donnees(res, reg, o) : fail(res, 404, o.erreur);
+    if (rest === "chantiers.json") return o.dataFile ? donnees(req, res, reg, o) : fail(res, 404, o.erreur);
     if (rest === "code_stats.json") return serveFile(req, res, o.tracker, "code_stats.json");
     // Bac à sable : une page HTML d'un projet (node_modules, docs…) ne s'exécute pas avec les droits de l'accueil.
-    if (rest.startsWith("fichiers/")) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length), { "Content-Security-Policy": "sandbox" });
+    if (rest.startsWith("fichiers/")) return serveFile(req, res, o.dossier, rest.slice("fichiers/".length), { "Content-Security-Policy": "sandbox" }, { projet: true });
     return fail(res, 404, "introuvable");
   }
 

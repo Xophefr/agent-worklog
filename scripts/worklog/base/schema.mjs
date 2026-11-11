@@ -26,6 +26,12 @@ const MIGRATIONS = [
   (d, t) => [
     `CREATE TABLE IF NOT EXISTS wl_operations (uid VARCHAR(64) PRIMARY KEY, projet_id ${t.cle} NOT NULL, quand ${t.date} NOT NULL)${fin(d)}`,
   ],
+  // 3 : index des lectures de chaque requête (version du projet, journal) et de la purge des opérations.
+  () => [
+    "CREATE INDEX wl_historique_version ON wl_historique (projet_id, n)",
+    "CREATE INDEX wl_journal_projet ON wl_journal (projet_id, n)",
+    "CREATE INDEX wl_operations_quand ON wl_operations (quand)",
+  ],
 ];
 
 export const TABLES = ["wl_operations", "wl_historique", "wl_code", "wl_specs", "wl_journal", "wl_taches", "wl_chantiers", "wl_jetons", "wl_projets", "wl_schema"];

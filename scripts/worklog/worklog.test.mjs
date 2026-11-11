@@ -388,7 +388,11 @@ test("revue 1.4.0 : registre vide, fichiers en bac à sable, hôte local, chemin
   const evil = await fetch(`http://localhost:${port}/p/un/fichiers/docs/evil.html`);
   assert.equal(evil.status, 200);
   assert.match(evil.headers.get("content-security-policy") || "", /sandbox/);
-  assert.equal((await fetch(`http://localhost:${port}/p/un/`)).headers.get("content-security-policy"), null);
+  // Le tableau lui-même : pas de bac à sable (il doit tourner), mais scripts de sa seule origine.
+  const csp = (await fetch(`http://localhost:${port}/p/un/`)).headers.get("content-security-policy") || "";
+  assert.doesNotMatch(csp, /sandbox/);
+  assert.match(csp, /script-src 'self'(;|$)/);
+  assert.match(csp, /frame-ancestors 'none'/);
   const { request } = await import("node:http");
   const status = await new Promise((ok) => request({ host: "127.0.0.1", port, path: "/p/un/fichiers/tracker.config.json", headers: { Host: "evil.example" } }, (r) => { r.resume(); ok(r.statusCode); }).end());
   assert.equal(status, 403);
@@ -1550,4 +1554,112 @@ console.log(date("2026-10-24T14:30:00Z")); console.log(date("2026-01-15T14:30:00
   const lancer = (tz) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", env: { ...process.env, TZ: tz } }).stdout.trim().split("\n");
   assert.deepEqual(lancer("Europe/Paris"), ["2026-10-24 16:30", "2026-01-15 15:30", "n'importe quoi", "true"]);
   assert.deepEqual(lancer("UTC"), ["2026-10-24 14:30", "2026-01-15 14:30", "n'importe quoi", "true"]);
+});
+
+for (const [nom, url] of BASES) {
+  test(`2.2.0 (${nom}) : 304 sur une version déjà vue, gzip, cache de lecture, specs résumées, jetons, purge, limites`, async (t) => {
+    const { gunzipSync } = await import("node:zlib");
+    const { request } = await import("node:http");
+    const base = await baseNeuve(url);
+    t.after(() => base.fermer());
+    const depot = creerDepot(base);
+    const srv = createBff({ depot, uiDir: join(ROOT, "docs", "tracker") }).listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => srv.close());
+    const port = srv.address().port;
+    const ji = await depot.creerJeton(null, "interface");
+    const H = { "Content-Type": "application/json", Authorization: `Bearer ${ji}` };
+    const imp = await fetch(`http://localhost:${port}/api/import`, { method: "POST", headers: H, body: JSON.stringify({ id: "p", nom: "P", data: build() }) });
+    assert.equal(imp.status, 200);
+
+    // ETag : la même version donne 304, une écriture en donne une autre.
+    const r1 = await fetch(`http://localhost:${port}/p/p/chantiers.json`, { headers: H });
+    const e1 = r1.headers.get("etag");
+    assert.match(e1, /^W\/"v\d+"$/);
+    assert.equal((await fetch(`http://localhost:${port}/p/p/chantiers.json`, { headers: { ...H, "If-None-Match": e1 } })).status, 304);
+    const op = (o, args, s = "s1") => fetch(`http://localhost:${port}/api/p/p/operation`, { method: "POST", headers: H, body: JSON.stringify({ op: o, args, session: s }) });
+    assert.equal((await op("modifierTache", { id: "API-01", champs: { note: "après" } })).status, 200);
+    const r2 = await fetch(`http://localhost:${port}/p/p/chantiers.json`, { headers: { ...H, "If-None-Match": e1 } });
+    assert.equal(r2.status, 200);
+    assert.notEqual(r2.headers.get("etag"), e1);
+    assert.equal((await r2.json()).items.find((i) => i.id === "API-01").note, "après"); // le cache suit l'écriture
+
+    // gzip quand le client l'accepte (corps assez gros), corps identique une fois décompressé.
+    const gros = await new Promise((ok) => request({ host: "127.0.0.1", port, path: "/p/p/chantiers.json", headers: { Host: "localhost", Authorization: `Bearer ${ji}`, "Accept-Encoding": "gzip" } }, (r) => {
+      const c = []; r.on("data", (x) => c.push(x)); r.on("end", () => ok({ enc: r.headers["content-encoding"], buf: Buffer.concat(c) }));
+    }).end());
+    if (gros.enc) { assert.equal(gros.enc, "gzip"); assert.equal(JSON.parse(gunzipSync(gros.buf).toString("utf8")).meta.projet, "P"); }
+
+    // Lecture en cache : deux lectures sans écriture rendent des copies égales mais indépendantes.
+    const a = await depot.lire("p"), b2 = await depot.lire("p");
+    assert.deepEqual(a, b2);
+    a.items[0].titre = "modifié en mémoire";
+    assert.notEqual((await depot.lire("p")).items[0].titre, "modifié en mémoire");
+
+    // Spec : l'historique garde taille et empreinte, pas le texte.
+    await op("specs", { specs: [{ chemin: "docs/chantiers/CH-01_api.md", texte: SPEC }] });
+    const h = await depot.historique("p", "spec", "docs/chantiers/CH-01_api.md");
+    assert.equal(h.length, 1);
+    assert.match(h[0].apres, /^\d+ caractères, empreinte [0-9a-f]{12}$/);
+
+    // Jetons : liste sans le jeton, retrait par début d'empreinte, refus d'un début trop court.
+    const jp = await depot.creerJeton("p", "poste");
+    const liste = await depot.jetons();
+    assert.ok(liste.length >= 3 && liste.every((j) => /^[0-9a-f]{12}$/.test(j.id) && !("empreinte" in j)));
+    await assert.rejects(depot.revoquerJeton("ab"), /8 caractères/);
+    const { createHash } = await import("node:crypto");
+    const id = createHash("sha256").update(jp).digest("hex").slice(0, 12);
+    assert.equal((await depot.revoquerJeton(id)).projet, "p");
+    assert.equal(await depot.verifierJeton(jp), null);
+
+    // Purge : seules les opérations anciennes partent.
+    await base.requete("INSERT INTO wl_operations (uid, projet_id, quand) VALUES (?, ?, ?), (?, ?, ?)", ["vieille-op-0001", "p", "2020-01-01T00:00:00Z", "neuve-op-00001", "p", new Date().toISOString()]);
+    await depot.purgerOperations(180);
+    assert.deepEqual((await base.requete("SELECT uid FROM wl_operations WHERE uid IN ('vieille-op-0001', 'neuve-op-00001')")).map((r) => r.uid), ["neuve-op-00001"]);
+
+    // Limites : un patch du tableau au-delà de 2 Mo est refusé (413), une opération de 3 Mo passe.
+    const patch = { patch: { items: [{ id: "API-01", set: { note: "x".repeat(2_100_000) }, base: {} }] } };
+    assert.equal((await fetch(`http://localhost:${port}/p/p/save.php`, { method: "POST", headers: H, body: JSON.stringify(patch) })).status, 413);
+    assert.equal((await op("specs", { specs: [{ chemin: "docs/chantiers/gros.md", texte: "y".repeat(3_000_000) }] })).status, 200);
+  });
+}
+
+test("2.2.0 : fichiers du projet filtrés, ETag et 304 en mode fichiers, police servie, politique des pages", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "wl-220-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const dir = join(tmp, "Un");
+  mkdirSync(join(dir, "docs", "tracker"), { recursive: true });
+  mkdirSync(join(dir, "config"), { recursive: true });
+  mkdirSync(join(dir, "node_modules", "x"), { recursive: true });
+  writeFileSync(join(dir, "tracker.config.json"), JSON.stringify({ projet: "Un" }));
+  writeFileSync(join(dir, "docs", "tracker", "chantiers.json"), JSON.stringify(build()));
+  writeFileSync(join(dir, "docs", "spec.md"), "# spec");
+  writeFileSync(join(dir, "config", "secrets.yml"), "cle: x");
+  writeFileSync(join(dir, "config", "base.sqlite"), "x");
+  writeFileSync(join(dir, "node_modules", "x", "a.md"), "x");
+  const registry = join(tmp, "home", "projets.json");
+  const reg = { projets: [] };
+  addProject(reg, dir);
+  saveRegistry(registry, reg);
+  const srv = createAccueil({ registry, uiDir: join(ROOT, "docs", "tracker"), outil: "2.2.0" }).listen(0, "127.0.0.1");
+  await new Promise((r) => srv.once("listening", r));
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}/p/un/`;
+  assert.equal((await fetch(b + "fichiers/docs/spec.md")).status, 200);
+  for (const p of ["config/secrets.yml", "config/base.sqlite", "node_modules/x/a.md"]) assert.equal((await fetch(b + "fichiers/" + p)).status, 404, p);
+
+  const r = await fetch(b + "chantiers.json");
+  const e = r.headers.get("etag");
+  assert.ok(e);
+  assert.equal((await fetch(b + "chantiers.json", { headers: { "If-None-Match": e } })).status, 304);
+  writeFileSync(join(dir, "docs", "tracker", "chantiers.json"), JSON.stringify({ ...build(), meta: { ...build().meta, version: 99 } }));
+  assert.equal((await fetch(b + "chantiers.json", { headers: { "If-None-Match": e } })).status, 200);
+
+  const f = await fetch(b + "fonts/atkinson-400.woff2");
+  assert.equal(f.status, 200);
+  assert.equal(f.headers.get("content-type"), "font/woff2");
+  assert.equal((await fetch(`http://localhost:${srv.address().port}/fonts/atkinson-700.woff2`)).status, 200);
+  const page = await (await fetch(`http://localhost:${srv.address().port}/`)).text();
+  assert.doesNotMatch(page, /googleapis|gstatic/);
+  assert.doesNotMatch(readFileSync(join(ROOT, "docs", "tracker", "index.html"), "utf8"), /googleapis|gstatic/);
 });

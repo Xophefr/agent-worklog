@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { estLance } from "./config.mjs";
 import { applySession } from "./chantiers-tracker.mjs";
 import { exportMd } from "./export-md.mjs";
-import { fail, isLocalHost, readBody, send, serveFile } from "./http.mjs";
+import { fail, isLocalHost, MAX_BODY, pasChange, readBody, send, sendz, serveFile } from "./http.mjs";
 import { applyPatch } from "./patch.mjs";
 import { ajouterJournal, cloreChantier, creerChantier, creerTache, modifierChantier, modifierTache, poserLots } from "./operations.mjs";
 import { summarize } from "./resume.mjs";
@@ -28,7 +28,7 @@ import { migrer } from "./base/schema.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, "..", "..");
-const UI = new Set(["index.html", "app.js", "style.css", "xlsx.js"]);
+const UI = new Set(["index.html", "app.js", "style.css", "xlsx.js", "fonts/atkinson-400.woff2", "fonts/atkinson-700.woff2"]);
 const jourLocal = () => new Date().toLocaleDateString("en-CA");
 
 // Les opérations qu'une écriture peut demander : (données, args, session) -> résultat.
@@ -54,10 +54,13 @@ function pourTableau(d) {
   return { ...reste, meta: { ...d.meta, specs: specs.map((s) => s.chemin), code: Boolean(code) } };
 }
 
-// Un import porte tout un projet (données, textes bruts, specs) : bien plus que le patch d'un tableau.
+// Un import porte tout un projet (données, textes bruts, specs) : bien plus que le patch d'un tableau. Les
+// opérations (dont l'envoi de toutes les specs) ont une limite moyenne, le reste celle d'un patch du tableau.
 const MAX_CORPS = 64_000_000;
+const MAX_OPERATION = 16_000_000;
 
 export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil = "", maxCorps = MAX_CORPS }) {
+  const limite = { import: maxCorps, operation: Math.min(MAX_OPERATION, maxCorps), petit: Math.min(MAX_BODY, maxCorps) };
   async function qui(req) {
     const m = /^Bearer\s+(.+)$/.exec(String(req.headers.authorization || ""));
     const j = m ? await depot.verifierJeton(m[1].trim()) : null;
@@ -70,10 +73,10 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
   const voit = (acces, projet) => acces.projet === null || acces.projet === projet;
   const auteurDe = (acces, session) => (acces.type === "session" ? { nom: session, type: "session" } : { nom: acces.nom, type: "interface" });
 
-  async function corps(req) {
+  async function corps(req, max = limite.petit) {
     if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) throw new ErreurDepot(415, "JSON attendu");
     let txt;
-    try { txt = await readBody(req, maxCorps); } catch (e) { throw new ErreurDepot(e.code === 413 ? 413 : 400, e.message); }
+    try { txt = await readBody(req, max); } catch (e) { throw new ErreurDepot(e.code === 413 ? 413 : 400, e.message); }
     try { return JSON.parse(txt) || {}; } catch { throw new ErreurDepot(400, "charge invalide"); }
   }
 
@@ -97,12 +100,12 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
         const d = await depot.lire(pr.id);
         projets.push({ id: pr.id, nom: pr.nom, resume: summarize(d, { today: jourLocal(), version: outil, outil }) });
       }
-      return send(res, 200, { ok: true, projets });
+      return sendz(req, res, 200, { ok: true, projets });
     }
     if (p === "/api/import") {
       if (req.method !== "POST") return fail(res, 405, "POST attendu");
       if (acces.type !== "interface") return fail(res, 403, "réservé à l'interface (accueil ou installation)");
-      const c = await corps(req);
+      const c = await corps(req, limite.import);
       await importer(depot, c, { nom: "import", type: "session" }, { remplacer: Boolean(c.remplacer) });
       return send(res, 200, { ok: true, jeton: await depot.creerJeton(c.id, "poste") });
     }
@@ -117,7 +120,7 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
       const quoi = api[2];
       if (quoi === "operation") {
         if (req.method !== "POST") return fail(res, 405, "POST attendu");
-        const c = await corps(req);
+        const c = await corps(req, limite.operation);
         const f = Object.hasOwn(OPERATIONS, c.op) ? OPERATIONS[c.op] : null;
         if (!f) return fail(res, 400, `opération inconnue : ${c.op}`);
         // Les réglages du projet (dont le sort des .md du dépôt) sont le choix du responsable, dans l'interface.
@@ -142,7 +145,7 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
       // Le mode fichiers garde statuts, priorités, rangs, notes et lots choisis dans chantiers.json :
       // sans lui, repasser un projet en fichiers les perdrait.
       const json = { meta: { projet: d.meta.projet, ui: d.meta.ui, version: d.meta.version }, chantiers: d.chantiers, items: d.items };
-      return send(res, 200, { ok: true, ...exportMd(d), json, textes: d.textes });
+      return sendz(req, res, 200, { ok: true, ...exportMd(d), json, textes: d.textes });
     }
 
     const rest = tab[2] === undefined ? null : tab[3];
@@ -156,8 +159,13 @@ export function createBff({ depot, uiDir = join(SRC, "docs", "tracker"), outil =
     }
     if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "lecture seule");
     if (rest === "" || UI.has(rest)) return serveFile(req, res, uiDir, rest || "index.html");
-    if (rest === "chantiers.json") return send(res, 200, JSON.stringify(pourTableau(await depot.lire(projet))));
-    if (rest === "code_stats.json") { const d = await depot.lire(projet); return d.code ? send(res, 200, JSON.stringify(d.code)) : fail(res, 404, "aucun relevé"); }
+    if (rest === "chantiers.json") {
+      // Version déjà vue par la page : 304, sans rien lire ni envoyer (le tableau relit toutes les 15 s).
+      const etag = `W/"v${await depot.version(projet)}"`;
+      if (pasChange(req, res, etag)) return undefined;
+      return sendz(req, res, 200, JSON.stringify(pourTableau(await depot.lire(projet))), undefined, { ETag: etag });
+    }
+    if (rest === "code_stats.json") { const d = await depot.lire(projet); return d.code ? sendz(req, res, 200, JSON.stringify(d.code)) : fail(res, 404, "aucun relevé"); }
     return fail(res, 404, "introuvable");
   }
 
@@ -182,6 +190,20 @@ async function main(argv) {
   const base = await ouvrirBase(r.base);
   await migrer(base);
   const depot = creerDepot(base);
+  if (argv[0] === "jetons") {
+    const l = await depot.jetons();
+    if (!l.length) console.log("Aucun jeton.");
+    for (const j of l) console.log(`${j.id}  ${(j.projet || "interface").padEnd(16)} ${String(j.nom || "").padEnd(10)} ${j.cree_le || ""}`);
+    if (l.length) console.log("\nRetirer : npm run bff -- revoquer <id>   (le jeton cesse aussitôt de marcher)");
+    await base.fermer();
+    return 0;
+  }
+  if (argv[0] === "revoquer") {
+    try { const r = await depot.revoquerJeton(argv[1]); console.log(`jeton retiré : ${r.id} (${r.projet || "interface"}, ${r.nom})`); }
+    catch (e) { console.error(`ERREUR : ${e.message}`); await base.fermer(); return 1; }
+    await base.fermer();
+    return 0;
+  }
   if (argv[0] === "jeton") {
     const cible = argv[1];
     if (!cible) { console.error("Usage : npm run bff -- jeton interface|<projet>"); await base.fermer(); return 2; }
@@ -193,6 +215,9 @@ async function main(argv) {
   const k = argv.indexOf("--port");
   const port = Number(k >= 0 ? argv[k + 1] : r.port) || 4180;
   const outil = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
+  const purger = () => depot.purgerOperations().catch((e) => console.error(`purge des opérations : ${e.message}`));
+  await purger();
+  setInterval(purger, 86400000).unref();
   createBff({ depot, outil }).listen(port, "127.0.0.1", () => {
     console.log(`BFF : http://localhost:${port}/ (base ${base.dialecte === "pg" ? "PostgreSQL" : "MySQL/MariaDB"})`);
     console.log("Ctrl+C pour arrêter.");

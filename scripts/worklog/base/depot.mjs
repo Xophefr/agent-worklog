@@ -18,6 +18,8 @@ const lireJson = (t, d) => { try { return t == null ? d : JSON.parse(t); } catch
 const enTexte = (v) => (v == null ? null : typeof v === "string" ? v : JSON.stringify(v));
 const maintenant = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 const empreinte = (t) => createHash("sha256").update(String(t)).digest("hex");
+// Une spec change souvent d'un mot : l'historique en garde la taille et l'empreinte, pas deux copies du texte.
+const resumeSpec = (t) => (t == null ? null : `${[...String(t)].length} caractères, empreinte ${empreinte(t).slice(0, 12)}`);
 
 async function charger(q, projetId) {
   const pr = (await q("SELECT id, nom, ui, reglages, textes FROM wl_projets WHERE id = ?", [projetId]))[0];
@@ -129,7 +131,7 @@ async function ecrireDans(q, projetId, auteur, fn, { uid, garde } = {}) {
     if (sp0.get(s.chemin) === s.texte) continue;
     if (sp0.has(s.chemin)) await q("UPDATE wl_specs SET texte = ? WHERE projet_id = ? AND chemin = ?", [s.texte, projetId, s.chemin]);
     else await q("INSERT INTO wl_specs (projet_id, chemin, texte) VALUES (?, ?, ?)", [projetId, s.chemin, s.texte]);
-    noter("spec", s.chemin, "texte", sp0.get(s.chemin), s.texte);
+    noter("spec", s.chemin, "texte", resumeSpec(sp0.get(s.chemin)), resumeSpec(s.texte));
   }
   if (json(avant.code) !== json(apres.code)) {
     await q("DELETE FROM wl_code WHERE projet_id = ?", [projetId]);
@@ -191,11 +193,24 @@ export async function importer(depot, { id, nom, ui = {}, data, journal = { cons
 export function creerDepot(base) {
   const q0 = base.requete;
   const ecrire = (projetId, auteur, fn, opts = {}) => base.transaction((tx) => ecrireDans(tx.requete, projetId, auteur, fn, opts));
+  // Lecture en cache, par projet, tant que sa version (dernière ligne d'historique) ne bouge pas : toute écriture
+  // passe par ecrireDans, qui ajoute une ligne. La version est lue AVANT les données : une écriture qui tombe entre
+  // les deux donne des données plus récentes que leur étiquette, jamais l'inverse (la lecture suivante recharge).
+  const cache = new Map();
+  async function lire(projetId) {
+    const v = await versionDe(q0, projetId);
+    const c = cache.get(projetId);
+    if (c && c.version === v) return structuredClone(c.data);
+    const d = await charger(q0, projetId);
+    cache.set(projetId, { version: v, data: d });
+    return structuredClone(d);
+  }
 
   return {
     base,
     ecrire,
-    lire: (projetId) => charger(q0, projetId),
+    lire,
+    version: (projetId) => versionDe(q0, projetId),
     async projets() { return (await q0("SELECT id, nom FROM wl_projets ORDER BY id")).map((r) => ({ id: r.id, nom: r.nom })); },
 
     creerProjet: (p, auteur) => base.transaction((tx) => ajoutProjet(tx.requete, p, auteur)),
@@ -209,6 +224,25 @@ export function creerDepot(base) {
       const jeton = randomBytes(32).toString("base64url");
       await q0("INSERT INTO wl_jetons (empreinte, projet_id, nom, cree_le) VALUES (?, ?, ?, ?)", [empreinte(jeton), projetId, nom, maintenant()]);
       return jeton;
+    },
+    /** Jetons enregistrés : début d'empreinte (jamais le jeton, qui n'est pas gardé), projet, nom, date. */
+    async jetons() {
+      return (await q0("SELECT empreinte, projet_id, nom, cree_le FROM wl_jetons ORDER BY cree_le, empreinte"))
+        .map((r) => ({ id: r.empreinte.slice(0, 12), projet: r.projet_id ?? null, nom: r.nom, cree_le: r.cree_le }));
+    },
+    /** Retire le jeton dont l'empreinte commence par `debut` (8 caractères au moins, une seule correspondance). */
+    async revoquerJeton(debut) {
+      const d = String(debut || "").toLowerCase();
+      if (!/^[0-9a-f]{8,64}$/.test(d)) throw new ErreurDepot(400, "début d'empreinte attendu (8 caractères hexadécimaux au moins, colonne id de la liste)");
+      const vus = (await q0("SELECT empreinte, projet_id, nom FROM wl_jetons")).filter((r) => r.empreinte.startsWith(d));
+      if (vus.length !== 1) throw new ErreurDepot(vus.length ? 409 : 404, vus.length ? `${vus.length} jetons commencent par ${d} : en donner davantage` : `aucun jeton ${d}`);
+      await q0("DELETE FROM wl_jetons WHERE empreinte = ?", [vus[0].empreinte]);
+      return { id: d, projet: vus[0].projet_id ?? null, nom: vus[0].nom };
+    },
+    /** Identifiants d'opération de plus de `jours` jours : une file d'attente n'attend jamais si longtemps. */
+    async purgerOperations(jours = 180) {
+      const borne = new Date(Date.now() - jours * 86400000).toISOString().replace(/\.\d{3}Z$/, "Z");
+      await q0("DELETE FROM wl_operations WHERE quand < ?", [borne]);
     },
     async verifierJeton(jeton) {
       if (!jeton) return null;

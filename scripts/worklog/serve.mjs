@@ -40,7 +40,7 @@ export function createTracker(root, cfg) {
       return undefined;
     }
     if (req.method !== "GET" && req.method !== "HEAD") return fail(res, 405, "lecture seule");
-    return serveFile(req, res, root, pathname);
+    return serveFile(req, res, root, pathname, {}, { projet: true });
   });
 }
 
